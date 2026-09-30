@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 
@@ -24,7 +25,8 @@ DBT_DIR = config.REPO_ROOT / "dbt"
 
 
 def run_dbt(*args: str) -> None:
-    cmd = [str(DBT) if DBT.exists() else "dbt", *args]
+    # The Windows venv exe only applies on Windows (a bind-mounted repo in Linux also sees it).
+    cmd = [str(DBT) if os.name == "nt" and DBT.exists() else "dbt", *args]
     result = subprocess.run(cmd, cwd=DBT_DIR, capture_output=True, text=True)
     if result.returncode != 0:
         sys.exit(

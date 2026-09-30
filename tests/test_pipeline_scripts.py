@@ -90,3 +90,21 @@ def test_identifier_and_literal_safety():
     with pytest.raises(ValueError):
         check_identifier("x; DROP TABLE y")
     assert sql_string("o'brien") == "'o''brien'"
+
+
+def test_verify_pipeline_reports_every_failed_check():
+    import verify_pipeline
+
+    def scalar(sql: str) -> int:
+        return 0 if "marts.fct_loans" in sql or "snp_loan_status" in sql else 10
+
+    failures = verify_pipeline.run_checks(scalar)
+    assert "marts.fct_loans is empty" in failures
+    assert any("snp_loan_status" in f for f in failures)
+    assert not any("staging lost" in f for f in failures)  # raw and staging both report 10
+
+
+def test_verify_pipeline_passes_when_layers_reconcile():
+    import verify_pipeline
+
+    assert verify_pipeline.run_checks(lambda sql: 5) == []

@@ -5,8 +5,7 @@ Production-style credit risk data pipeline built on the public
 
 **Stack:** Snowflake (dev/prod) - dbt - Airflow - DuckDB (CI) - Python - GitHub Actions.
 
-> Status: **Phase 1 of 4** - repository structure, data download, RAW layer load.
-> Later phases: dbt models and tests, orchestration, CI/CD and docs, dashboard.
+> Status: **Phase 4 of 5** - orchestration with Airflow done. Next: CI/CD, dbt docs, Metabase.
 
 ## Architecture (target)
 
@@ -33,6 +32,28 @@ each month m, as if a new monthly load had arrived. `dbt_valid_from` / `dbt_vali
 wall-clock times of the replay runs, **not business dates** (the dataset has no calendar dates); the
 simulated business timeline is the `as_of_month` column. The CI target replays all 96 months, dev the last 12.
 
+## Orchestration (Airflow)
+
+One command starts Airflow locally (Docker required); UI at http://localhost:8080, no login:
+
+```bash
+docker compose -f orchestration/airflow/docker-compose.yml up --build
+```
+
+Unpause `credit_risk_daily` and trigger it (default target `ci`: DuckDB + the committed sample, no credentials).
+
+```
+needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt_build
+               -> replay_snapshot -> test_snapshot -> verify
+```
+
+- Schedule `@daily`, `catchup=False`, `max_active_runs=1`, 2 retries with exponential backoff.
+- `target` (`ci`/`dev`/`prod`) and `replay_start_month` are run params. `dev`/`prod` also download from Kaggle and
+  need the credentials in `.env`, which compose loads if present.
+- The snapshot and the tests that read it are excluded from `dbt_build` and run after the replay, which fills the SCD2 table.
+- `verify` checks that the marts are populated and that RAW, staging and marts reconcile row counts.
+- dbt runs in its own virtualenv inside the image: its dependency pins conflict with Airflow's.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -40,7 +61,7 @@ simulated business timeline is the `as_of_month` column. The CI target replays a
 | `credit_risk_pipeline/` | Shared Python code (table registry, config, connections) |
 | `scripts/` | CLI entry points: download, sample, load, Snowflake setup |
 | `dbt/` | dbt project and `profiles.yml` (targets `dev`, `prod`, `ci`) |
-| `orchestration/airflow/` | Airflow DAGs (phase 3) |
+| `orchestration/airflow/` | Airflow DAGs (phase 4) |
 | `data/sample/` | Deterministic 5,000-client sample used by CI |
 | `docs/` | Data quality findings and design notes |
 | `dashboard/` | Dashboard file (BI) |
