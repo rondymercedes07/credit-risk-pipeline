@@ -156,6 +156,30 @@ models:
       - name: is_days_employed_sentinel
         description: 'True when the source value was the 365243 placeholder; days_employed is NULL in that case.'
 
+  - name: stg_application_test
+    description: 'One row per loan application of the Kaggle test set (SK_ID_CURR): same columns as stg_application_train without target, which is unknown. XNA codes and the 365243 DAYS_EMPLOYED placeholder are nulled and flagged exactly as in train.'
+    columns:
+      - name: sk_id_curr
+        description: 'Primary key. Disjoint from stg_application_train.sk_id_curr.'
+        data_tests:
+          - unique
+          - not_null
+      - name: name_contract_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Cash loans', 'Revolving loans']
+      - name: code_gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['F', 'M']
+      - name: name_income_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Businessman', 'Commercial associate', 'Maternity leave', 'Pensioner', 'State servant', 'Student', 'Unemployed', 'Working']
+
   - name: stg_bureau
     description: 'One row per credit reported to the credit bureau (SK_ID_BUREAU) for a client of Home Credit.'
     columns:
@@ -165,15 +189,9 @@ models:
           - unique
           - not_null
       - name: sk_id_curr
-        description: 'Foreign key to stg_application_train.sk_id_curr.'
+        description: 'Foreign key to stg_application_train.sk_id_curr or stg_application_test.sk_id_curr (checked by assert_client_keys_exist_in_application).'
         data_tests:
           - not_null
-          - relationships:
-              arguments:
-                to: ref('stg_application_train')
-                field: sk_id_curr
-              config:
-                severity: warn
       - name: credit_active
         data_tests:
           - accepted_values:
@@ -361,15 +379,9 @@ models:
           - unique
           - not_null
       - name: sk_id_curr
-        description: 'Foreign key to stg_application_train.sk_id_curr.'
+        description: 'Foreign key to stg_application_train.sk_id_curr or stg_application_test.sk_id_curr (checked by assert_client_keys_exist_in_application).'
         data_tests:
           - not_null
-          - relationships:
-              arguments:
-                to: ref('stg_application_train')
-                field: sk_id_curr
-              config:
-                severity: warn
       - name: name_contract_type
         data_tests:
           - accepted_values:
