@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: >
+      Home Credit Default Risk files exactly as delivered: every column VARCHAR, plus _loaded_at and _source_file
+      audit columns. Loaded by scripts/load_raw.py (Snowflake RAW schema, or the DuckDB file for the ci target).
+    config:
+      loaded_at_field: _loaded_at
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
+    tables:
+      - name: application_train
+        description: 'One row per loan application (SK_ID_CURR). Source file: application_train.csv.'
+      - name: bureau
+        description: 'One row per credit reported to the bureau (SK_ID_BUREAU). Source file: bureau.csv.'
+      - name: bureau_balance
+        description: 'One row per bureau credit per month (SK_ID_BUREAU, MONTHS_BALANCE). Source file: bureau_balance.csv.'
+      - name: previous_application
+        description: 'One row per previous Home Credit application (SK_ID_PREV). Source file: previous_application.csv.'
+      - name: installments_payments
+        description: 'One row per installment payment (SK_ID_PREV, installment number/version). Source file: installments_payments.csv.'
+      - name: pos_cash_balance
+        description: 'One row per POS/cash loan per month (SK_ID_PREV, MONTHS_BALANCE). Source file: POS_CASH_balance.csv.'
+      - name: credit_card_balance
+        description: 'One row per credit card per month (SK_ID_PREV, MONTHS_BALANCE). Source file: credit_card_balance.csv.'
