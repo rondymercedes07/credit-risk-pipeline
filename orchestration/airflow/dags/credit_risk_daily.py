@@ -26,6 +26,7 @@ from cosmos import (
     RenderConfig,
 )
 from cosmos.constants import LoadMode, TestBehavior
+from cosmos.operators.local import AbstractDbtLocalBase
 
 PROJECT = "/opt/project"
 DBT_PROJECT = f"{PROJECT}/dbt"
@@ -42,8 +43,37 @@ default_args = {
     "pool": "dbt_warehouse",
 }
 
+
+def _use_templated_target(generate_flags):
+    """Make the DAG param the effective dbt target.
+
+    Cosmos 1.15.1 appends `--target <ProfileConfig.target_name>` AFTER the user's dbt_cmd_flags,
+    and dbt keeps the last value, so a templated `--target {{ params.target }}` would silently
+    lose to the static one (a dev run would hit the `ci` DuckDB file). When the operator carries
+    our templated flag we drop Cosmos's static pair. It fails loudly if Cosmos stops emitting
+    exactly one static `--target`, so an upgrade cannot change the behaviour unnoticed.
+    """
+
+    def wrapper(self, *args, **kwargs):
+        flags = generate_flags(self, *args, **kwargs)
+        if "--target" in (self.dbt_cmd_flags or []):
+            if flags.count("--target") != 1:
+                raise RuntimeError(f"Unexpected Cosmos flags, cannot set the target: {flags}")
+            i = flags.index("--target")
+            del flags[i : i + 2]
+        return flags
+
+    return wrapper
+
+
+if not getattr(AbstractDbtLocalBase._generate_dbt_flags, "_templated_target", False):
+    AbstractDbtLocalBase._generate_dbt_flags = _use_templated_target(
+        AbstractDbtLocalBase._generate_dbt_flags
+    )
+    AbstractDbtLocalBase._generate_dbt_flags._templated_target = True
+
 # target_name is only used at parse time (dbt ls); the runtime target comes from the DAG param
-# through dbt_cmd_flags below, which is templated.
+# through the templated dbt_cmd_flags below (see _use_templated_target).
 profile_config = ProfileConfig(
     profile_name="credit_risk",
     target_name="ci",

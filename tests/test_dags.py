@@ -118,3 +118,20 @@ def test_no_credentials_in_orchestration_code(path):
     text = text.replace(LOCAL_DB_PASSWORD, "")  # see below
     hits = [name for name, rx in SECRET_PATTERNS.items() if rx.search(text)]
     assert not hits, f"{path.name} looks like it contains: {hits}"
+
+
+@pytest.mark.parametrize("target", ["ci", "dev", "prod"])
+def test_dbt_tasks_run_against_the_dag_param_target_not_cosmos_static_one(dagbag, target):
+    # Regression: Cosmos appends `--target ci` (ProfileConfig.target_name) after our flag and dbt
+    # keeps the last value, so a dev run silently executed on DuckDB.
+    task = dagbag.dags["credit_risk_daily"].get_task("dbt_build.fct_loans.run")
+    assert task.dbt_cmd_flags == ["--target", "{{ params.target }}"]
+    templated = task.dbt_cmd_flags
+    task.dbt_cmd_flags = ["--target", target]  # what Jinja renders at run time
+    try:
+        flags = task._generate_dbt_flags("/tmp/project", Path("/opt/project/dbt/profiles.yml"))
+        effective = task.dbt_cmd_flags + flags
+    finally:
+        task.dbt_cmd_flags = templated  # the DagBag is shared by the other tests
+    assert effective.count("--target") == 1
+    assert effective[effective.index("--target") + 1] == target
