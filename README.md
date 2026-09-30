@@ -52,6 +52,9 @@ needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt
 ```
 
 - `download_data` runs only for `dev`/`prod`; `ci` uses the committed sample.
+- `load_raw` skips a table whose source file is unchanged: `RAW._LOAD_AUDIT` stores each table's sha256 and row count, and a table is
+  skipped only if the hash matches and RAW still has that row count (`--force` reloads everything). The log shows
+  `skipped: unchanged` per table.
 - `dbt_build` is an [Astronomer Cosmos](https://astronomer.github.io/astronomer-cosmos/) task group: one Airflow task per
   dbt model and one per model's tests, so a failure points at a model and a rerun resumes from it. Tests with
   `severity: warn` are logged and do not fail the DAG; `severity: error` tests do.
@@ -63,6 +66,10 @@ needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt
 snapshot: `replay_snapshot -> test_snapshot -> verify_snapshot`. Params: `start_month` (default -12), `end_month`
 (default -1), `target` (default `ci`). It drops and rebuilds the snapshot, so it can be rerun; run `credit_risk_daily`
 first on the same target.
+
+For `dev`/`prod`, the scheduler (which runs the tasks) mounts `~/.snowflake` read-only at `/run/snowflake` and overrides
+`SNOWFLAKE_PRIVATE_KEY_PATH` there (key file named `rsa_key.p8`; set `SNOWFLAKE_KEY_DIR` for another folder). The key is never copied into the image.
+For Snowflake set `DBT_POOL_SLOTS=4` in `.env` before `up` (the dbt threads of `dev`).
 
 dbt runs in its own virtualenv inside the image (its dependency pins conflict with Airflow's); Cosmos only needs the path
 to its executable. Warehouse-writing tasks share the Airflow pool `dbt_warehouse` (1 slot by default because DuckDB allows

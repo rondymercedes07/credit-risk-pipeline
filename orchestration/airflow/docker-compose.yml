@@ -30,6 +30,9 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: airflow
+      # Same literal as the official Airflow compose. This database only holds Airflow metadata,
+      # lives on the private compose network and publishes no port, so it is unreachable from
+      # outside. Do not reuse this password, and do not add a `ports:` entry here.
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
@@ -63,6 +66,24 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    # The scheduler runs the tasks (LocalExecutor), so only it gets the Snowflake key: mounted
+    # read-only from the host, never copied into the image. The path is overridden here because
+    # the one in .env is a Windows path. Set SNOWFLAKE_KEY_DIR if your key is not in ~/.snowflake
+    # (the file must be called rsa_key.p8).
+    environment:
+      <<: *airflow-env
+      SNOWFLAKE_PRIVATE_KEY_PATH: /run/snowflake/rsa_key.p8
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ../..:/opt/project
+      - ${SNOWFLAKE_KEY_DIR:-${USERPROFILE:-${HOME}}/.snowflake}:/run/snowflake:ro
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
     depends_on:
       airflow-init:
         condition: service_completed_successfully
