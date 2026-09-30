@@ -1,8 +1,10 @@
-"""Daily credit-risk pipeline: download -> load RAW -> dbt build -> snapshot replay -> verify.
+"""Daily credit-risk pipeline: download -> load RAW -> dbt (Cosmos task group) -> verify.
 
-Every step shells out to the same commands you would run by hand, so the DAG adds scheduling,
-dependencies, retries and observability but no logic of its own. Python and dbt live in a
-separate virtualenv (/opt/venv) because dbt's dependency pins conflict with Airflow's.
+The dbt project is rendered by Astronomer Cosmos as one Airflow task per model (plus one per
+model's tests), so a failure points at the exact model and a rerun can resume from it. dbt lives
+in a separate virtualenv (/opt/venv) because its dependency pins conflict with Airflow's; Cosmos
+only needs the path to its executable. The SCD2 snapshot and the tests that read it are excluded
+here: they belong to the `replay_loan_status` DAG (simulated monthly loads), triggered by hand.
 
 The `target` param selects the warehouse: `ci` (default) runs on DuckDB with the committed
 sample and needs no credentials; `dev` / `prod` run on Snowflake with the full dataset.
@@ -16,8 +18,18 @@ from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.sdk import DAG, Param, task
 from airflow.task.trigger_rule import TriggerRule
+from cosmos import (
+    DbtTaskGroup,
+    ExecutionConfig,
+    ProfileConfig,
+    ProjectConfig,
+    RenderConfig,
+)
+from cosmos.constants import LoadMode, TestBehavior
 
 PROJECT = "/opt/project"
+DBT_PROJECT = f"{PROJECT}/dbt"
+DBT_EXECUTABLE = "/opt/venv/bin/dbt"
 TARGET = "{{ params.target }}"
 
 default_args = {
@@ -26,7 +38,17 @@ default_args = {
     "retry_delay": timedelta(minutes=2),
     "retry_exponential_backoff": True,
     "execution_timeout": timedelta(hours=2),
+    # One slot on ci: DuckDB allows a single writing process. Raise DBT_POOL_SLOTS for Snowflake.
+    "pool": "dbt_warehouse",
 }
+
+# target_name is only used at parse time (dbt ls); the runtime target comes from the DAG param
+# through dbt_cmd_flags below, which is templated.
+profile_config = ProfileConfig(
+    profile_name="credit_risk",
+    target_name="ci",
+    profiles_yml_filepath=f"{DBT_PROJECT}/profiles.yml",
+)
 
 with DAG(
     dag_id="credit_risk_daily",
@@ -34,17 +56,11 @@ with DAG(
     schedule="@daily",
     start_date=datetime(2025, 1, 1),
     catchup=False,
+    is_paused_upon_creation=True,
     max_active_runs=1,  # runs share one warehouse (and one DuckDB file on ci)
     default_args=default_args,
     params={
         "target": Param("ci", enum=["ci", "dev", "prod"], description="dbt / loader target"),
-        "replay_start_month": Param(
-            -12,
-            type="integer",
-            minimum=-96,
-            maximum=-1,
-            description="First simulated monthly load of the SCD2 snapshot (-96 = full history)",
-        ),
     },
     tags=["credit-risk", "dbt"],
     doc_md=__doc__,
@@ -69,28 +85,26 @@ with DAG(
         # One of the two upstream branches is always skipped; that must not skip the load.
         trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
-    dbt_deps = BashOperator(task_id="dbt_deps", bash_command="dbt deps", cwd=f"{PROJECT}/dbt")
+    dbt_deps = BashOperator(task_id="dbt_deps", bash_command="dbt deps", cwd=DBT_PROJECT)
 
-    # The snapshot and the tests that read it cannot run before the replay has populated it,
-    # so they are carved out of the main build and run in the two tasks below.
-    dbt_build = BashOperator(
-        task_id="dbt_build",
-        bash_command=f"dbt build --target {TARGET} --exclude snp_loan_status+",
-        cwd=f"{PROJECT}/dbt",
-    )
-    replay_snapshot = BashOperator(
-        task_id="replay_snapshot",
-        bash_command=(
-            f"python scripts/replay_loan_status.py --target {TARGET} "
-            "--start {{ params.replay_start_month }} --end -1 --fresh"
+    # Tests: severity error fails the task (and the DAG); severity warn exits 0 and is only logged.
+    dbt_build = DbtTaskGroup(
+        group_id="dbt_build",
+        # Packages come from the dbt_deps task, not from every Cosmos task.
+        project_config=ProjectConfig(dbt_project_path=DBT_PROJECT, install_dbt_deps=False),
+        profile_config=profile_config,
+        execution_config=ExecutionConfig(dbt_executable_path=DBT_EXECUTABLE),
+        render_config=RenderConfig(
+            dbt_executable_path=DBT_EXECUTABLE,
+            load_method=LoadMode.DBT_LS,
+            test_behavior=TestBehavior.AFTER_EACH,
+            exclude=["snp_loan_status+"],
         ),
-        cwd=PROJECT,
+        operator_args={
+            "dbt_cmd_flags": ["--target", TARGET],
+        },
     )
-    test_snapshot = BashOperator(
-        task_id="test_snapshot",
-        bash_command=f"dbt test --target {TARGET} --select snp_loan_status+",
-        cwd=f"{PROJECT}/dbt",
-    )
+
     verify = BashOperator(
         task_id="verify",
         bash_command=f"python scripts/verify_pipeline.py --target {TARGET}",
@@ -98,4 +112,4 @@ with DAG(
     )
 
     branch >> [skip_download, download_data] >> load_raw
-    load_raw >> dbt_deps >> dbt_build >> replay_snapshot >> test_snapshot >> verify
+    load_raw >> dbt_deps >> dbt_build >> verify
