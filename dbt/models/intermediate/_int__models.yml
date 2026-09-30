@@ -1,0 +1,244 @@
+version: 2
+
+models:
+  - name: int_installment_schedule
+    description: >
+      One row per SCHEDULED installment of a loan, (sk_id_prev, num_instalment_number). Collapses the source, which has one row per
+      payment and per version: the amount due is the sum over versions and the payments are taken once (the source repeats them in every
+      version). Holds the days-past-due (DPD) logic: last payment day minus due day, floored at 0; NULL when nothing was paid. Covers all
+      clients including test clients and loans without a previous_application row.
+    columns:
+      - name: installment_id
+        description: 'Surrogate key: hash of sk_id_prev and num_instalment_number.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_prev
+        description: 'Loan identifier.'
+        data_tests:
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier.'
+        data_tests:
+          - not_null
+      - name: num_instalment_number
+        description: 'Installment number within the loan.'
+      - name: n_versions
+        description: 'Number of schedule versions of this installment (1 for 99%; the amount due is split across versions).'
+      - name: n_payments
+        description: 'Number of payment rows (more than 1 when paid in parts; 0 when unpaid).'
+      - name: due_day
+        description: 'Due date as days relative to the current application, from the lowest version.'
+      - name: amt_due
+        description: 'Amount due: sum of the amount of every version.'
+      - name: amt_paid
+        description: 'Sum of the payments (taken once, from the lowest version). NULL when unpaid.'
+      - name: first_payment_day
+        description: 'Day of the first payment (relative to the current application).'
+      - name: last_payment_day
+        description: 'Day of the last payment; the installment stopped being open then.'
+      - name: days_past_due_raw
+        description: 'last_payment_day - due_day. Negative means paid early. NULL when unpaid.'
+      - name: dpd
+        description: 'Days past due: days_past_due_raw floored at 0. NULL when unpaid (no overdue days are invented).'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "dpd is not null"
+      - name: dpd_bucket
+        description: 'Delinquency bucket of the installment: 0, 1-30, 31-60, 61-90, 90+. NULL when unpaid.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+']
+      - name: is_unpaid
+        description: 'True when the installment has no payment at all.'
+      - name: is_underpaid
+        description: 'True when what was paid is below the amount due by more than 1 cent.'
+      - name: is_overpaid
+        description: 'True when what was paid is above the amount due by more than 1 cent.'
+      - name: amt_shortfall
+        description: 'Amount due minus amount paid for underpaid installments; NULL otherwise. Not converted into extra delinquency.'
+      - name: loaded_at
+        description: 'Latest RAW load timestamp among the source rows of the installment; the incremental watermark of fct_installments.'
+
+  - name: int_loan_payment_performance
+    description: 'One row per loan that has installments: counts of late and unpaid installments, worst DPD and its bucket, amounts due and paid. Includes loans without a previous_application row.'
+    columns:
+      - name: sk_id_prev
+        description: 'Loan identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier.'
+      - name: n_installments
+        description: 'Scheduled installments of the loan.'
+      - name: n_unpaid_installments
+        description: 'Installments without any payment.'
+      - name: n_late_installments
+        description: 'Installments paid with dpd > 0.'
+      - name: n_late_30p_installments
+        description: 'Installments paid with dpd > 30.'
+      - name: max_dpd
+        description: 'Worst days past due among paid installments.'
+      - name: dpd_bucket
+        description: 'Bucket of max_dpd: 0, 1-30, 31-60, 61-90, 90+; NULL when no installment was paid.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+']
+      - name: amt_due_total
+        description: 'Sum of the amounts due.'
+      - name: amt_paid_total
+        description: 'Sum of the amounts paid.'
+
+  - name: int_pos_cash_loan
+    description: 'One row per POS / cash loan from its monthly snapshots: observation window, months on book, worst DPD, month of first 30+ DPD and last status.'
+    columns:
+      - name: sk_id_prev
+        description: 'Loan identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier.'
+      - name: first_month
+        description: 'First observed months_balance (relative to the current application).'
+      - name: last_month
+        description: 'Last observed months_balance.'
+      - name: n_months_observed
+        description: 'Number of monthly snapshots.'
+      - name: max_mob
+        description: 'Months on book of the last snapshot: last_month - first_month.'
+      - name: is_left_censored
+        description: 'True when the first snapshot is at the start of the 96-month window, so the real start is unknown. Excluded from vintage curves.'
+      - name: cnt_instalment
+        description: 'Term of the loan in installments.'
+      - name: max_sk_dpd
+        description: 'Worst monthly days past due.'
+      - name: max_sk_dpd_def
+        description: 'Worst monthly days past due with tolerance (small amounts ignored).'
+      - name: first_dpd30_mob
+        description: 'Months on book at which raw sk_dpd first reached 30 or more; NULL if never.'
+      - name: last_status
+        description: 'Contract status in the last snapshot.'
+
+  - name: int_credit_card_loan
+    description: 'One row per credit card contract from its monthly balances: window, worst DPD, peak utilisation and last balance and limit.'
+    columns:
+      - name: sk_id_prev
+        description: 'Card contract identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier.'
+      - name: first_month
+        description: 'First observed months_balance.'
+      - name: last_month
+        description: 'Last observed months_balance.'
+      - name: n_months_observed
+        description: 'Number of monthly snapshots.'
+      - name: max_sk_dpd
+        description: 'Worst monthly days past due.'
+      - name: max_sk_dpd_def
+        description: 'Worst monthly days past due with tolerance.'
+      - name: max_utilization
+        description: 'Peak balance divided by credit limit over the months with a positive limit.'
+      - name: last_amt_balance
+        description: 'Balance in the last snapshot.'
+      - name: last_credit_limit
+        description: 'Credit limit in the last snapshot.'
+      - name: last_status
+        description: 'Contract status in the last snapshot.'
+
+  - name: int_bureau_client
+    description: 'Credit bureau footprint per client: number of credits, active and bad-debt credits, active debt (negative debts excluded) and overdue amounts.'
+    columns:
+      - name: sk_id_curr
+        description: 'Client identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: n_bureau_credits
+        description: 'Credits reported to the bureau.'
+      - name: n_active_bureau_credits
+        description: 'Credits with status Active.'
+      - name: n_bad_debt_bureau_credits
+        description: 'Credits with status Bad debt.'
+      - name: bureau_active_debt
+        description: 'Sum of positive outstanding debt of active credits.'
+      - name: bureau_overdue_amount
+        description: 'Sum of positive overdue amounts.'
+      - name: bureau_max_day_overdue
+        description: 'Largest credit_day_overdue, excluding the credits overdue for longer than they have existed.'
+
+  - name: int_client_credit_history
+    description: >
+      One row per client (train and test) with the credit history the risk marts use: worst DPD from installments (overall and last 12 months),
+      unpaid installments, tenure with Home Credit, and POS, card and bureau signals. Clients without a given history get NULL or 0 counts.
+    columns:
+      - name: sk_id_curr
+        description: 'Client identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: n_installments
+        description: 'Scheduled installments across all loans, orphan loans included.'
+      - name: n_unpaid_installments
+        description: 'Installments without any payment.'
+      - name: has_unpaid_installment
+        description: 'True when at least one installment has no payment.'
+      - name: max_dpd
+        description: 'Worst days past due among paid installments, all history.'
+      - name: max_dpd_12m
+        description: 'Worst days past due among paid installments due in the 365 days before the current application.'
+      - name: n_previous_applications
+        description: 'Previous Home Credit applications of any status.'
+      - name: n_approved_loans
+        description: 'Previous applications with status Approved.'
+      - name: first_approved_decision_day
+        description: 'days_decision of the first approved previous loan (most negative).'
+      - name: tenure_months
+        description: 'Whole months between the first approved previous loan and the current application; NULL without one.'
+      - name: pos_max_sk_dpd_def
+        description: 'Worst monthly DPD with tolerance over the client POS / cash loans.'
+      - name: cc_max_sk_dpd_def
+        description: 'Worst monthly DPD with tolerance over the client credit cards.'
+      - name: n_bureau_credits
+        description: 'Credits at the bureau.'
+      - name: n_active_bureau_credits
+        description: 'Active credits at the bureau.'
+      - name: n_bad_debt_bureau_credits
+        description: 'Bad-debt credits at the bureau.'
+      - name: bureau_active_debt
+        description: 'Outstanding debt of active bureau credits (0 without bureau history).'
+      - name: bureau_overdue_amount
+        description: 'Overdue amount at the bureau (0 without bureau history).'
+      - name: bureau_max_day_overdue
+        description: 'Largest days overdue at the bureau.'
+      - name: worst_dpd_bucket
+        description: 'Bucket of max_dpd (paid installments only) or no_history when no installment was ever paid.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+', 'no_history']
+      - name: worst_dpd_bucket_12m
+        description: 'Bucket of max_dpd_12m; none_last_12m when the client has history but no paid installment due in the last 12 months.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+', 'no_history', 'none_last_12m']
+      - name: dpd_bucket
+        description: 'Delinquency bucket used by the risk mart: unpaid when the client has any unpaid installment (days unknown, deliberately not mixed with 90+), else worst_dpd_bucket.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+', 'no_history', 'unpaid']
+      - name: tenure_cohort
+        description: 'Tenure cohort: 12-month block of tenure_months (00-11m, 12-23m, ...) or no_prior_loan.'
+
+  - name: int_loan_status_as_of
+    description: 'Ephemeral source of the SCD2 snapshot: latest status of each POS / cash loan as of the simulated load month var(as_of_month). Part of the monthly-load SIMULATION, see snp_loan_status.'
