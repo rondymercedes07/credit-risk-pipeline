@@ -27,7 +27,9 @@ def run_dbt(*args: str) -> None:
     cmd = [str(DBT) if DBT.exists() else "dbt", *args]
     result = subprocess.run(cmd, cwd=DBT_DIR, capture_output=True, text=True)
     if result.returncode != 0:
-        sys.exit(f"dbt failed ({' '.join(args)}):\n{result.stdout[-2000:]}\n{result.stderr[-1000:]}")
+        sys.exit(
+            f"dbt failed ({' '.join(args)}):\n{result.stdout[-2000:]}\n{result.stderr[-1000:]}"
+        )
 
 
 def main() -> None:

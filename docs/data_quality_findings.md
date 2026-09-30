@@ -7,8 +7,9 @@ rules below; staging stays 1:1 with RAW (row counts match exactly for all seven 
 **How tests report findings.** Structural tests (unique, not_null, accepted_values, the hard DPD
 rule) use `error` severity and fail the build. Tests that describe how the source data really is
 (orphan keys, negative amounts, reconciliation) use `severity: warn`: they stay visible in every
-`dbt build` but do not block CI, and each one is documented here. Phase 2 run on dev: 96 tests,
-85 pass, 11 warn, 0 error (counts for the current state are in the phase 3 summary).
+`dbt build` but do not block CI, and each one is documented here. Phase 3 state (staging, intermediate, marts, snapshot): **dev 192 checks: 183 pass, 9 warn, 0 error; ci (5k-client sample plus 800 test
+clients) 192 checks: 185 pass, 7 warn, 0 error.** The 9 dev warns are findings 9 to 12, 15 to 18 and the installment-grain
+reconciliation (3,453 installments: 3,234 underpaid, 219 overpaid); the 2 extra ci passes are warns that the sample does not trigger.
 
 ## Normalisation rules applied in staging
 
