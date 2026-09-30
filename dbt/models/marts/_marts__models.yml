@@ -1,0 +1,391 @@
+version: 2
+
+models:
+  - name: dim_client
+    description: >
+      One row per client of application_train (client_source = train, labelled) and application_test (client_source = test, unlabelled).
+      Descriptive attributes and segment bands only; credit behaviour lives in int_client_credit_history. is_default is the TARGET flag
+      of the current application, a client-level flag, NULL for test clients. Average it only over client_source = train.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(client_source = 'train') = (is_default is not null)"
+    columns:
+      - name: sk_id_curr
+        description: 'Primary key: client identifier (current application).'
+        data_tests:
+          - unique
+          - not_null
+      - name: client_source
+        description: 'Origin of the client: train (has TARGET) or test (no TARGET).'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['train', 'test']
+      - name: is_default
+        description: 'True when the client had payment difficulties on the current application (TARGET = 1). Client-level flag, not loan-level. NULL for test clients.'
+      - name: name_contract_type
+        description: 'Type of the current loan: Cash loans or Revolving loans.'
+      - name: code_gender
+        description: 'Gender (F or M); NULL when the source said XNA.'
+      - name: age_years
+        description: 'Age in whole years at the current application.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 18
+                max_value: 100
+                row_condition: "age_years is not null"
+              config:
+                severity: warn
+      - name: age_band
+        description: 'Age segment: <25, 25-34, 35-44, 45-54, 55-64, 65+ (fixed thresholds).'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['<25', '25-34', '35-44', '45-54', '55-64', '65+', 'unknown']
+      - name: cnt_children
+        description: 'Number of children.'
+      - name: amt_income_total
+        description: 'Declared annual income.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_income_total is not null"
+      - name: income_band
+        description: 'Income segment with fixed thresholds: 1 <90k, 2 90k-135k, 3 135k-180k, 4 180k-270k, 5 270k+.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['1: <90k', '2: 90k-135k', '3: 135k-180k', '4: 180k-270k', '5: 270k+', 'unknown']
+      - name: amt_credit
+        description: 'Credit amount of the current application (the exposure being decided).'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_credit is not null"
+      - name: amt_annuity
+        description: 'Annuity of the current loan.'
+      - name: amt_goods_price
+        description: 'Price of the goods the loan finances.'
+      - name: name_income_type
+        description: 'Income type (Working, Pensioner, State servant, ...).'
+      - name: name_education_type
+        description: 'Highest education level.'
+      - name: name_family_status
+        description: 'Family status.'
+      - name: name_housing_type
+        description: 'Housing situation.'
+      - name: occupation_type
+        description: 'Occupation; NULL when unknown.'
+      - name: organization_type
+        description: 'Type of employer; NULL when the source said XNA.'
+      - name: region_rating_client
+        description: 'Home Credit rating of the client region (1 best to 3 worst).'
+      - name: days_employed
+        description: 'Days employed before the application (negative); NULL for the 365243 placeholder.'
+      - name: is_days_employed_sentinel
+        description: 'True when days_employed was the 365243 placeholder in the source.'
+      - name: flag_own_car
+        description: 'Client owns a car.'
+      - name: flag_own_realty
+        description: 'Client owns real estate.'
+
+  - name: fct_loans
+    description: >
+      One row per previous Home Credit application of a TRAIN client, all statuses (approved, refused, canceled, unused offer), with
+      payment, POS and card signals left joined. The default flag is deliberately not here: TARGET is a client-level flag (see dim_client).
+      Loans that appear in payment tables without a previous_application row are not in this table.
+    columns:
+      - name: sk_id_prev
+        description: 'Primary key: previous application / loan identifier.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier, foreign key to dim_client.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_client')
+                field: sk_id_curr
+      - name: name_contract_type
+        description: 'Product type of the previous loan (Cash loans, Consumer loans, Revolving loans); NULL when the source said XNA.'
+      - name: name_contract_status
+        description: 'Outcome of the previous application.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Approved', 'Canceled', 'Refused', 'Unused offer']
+      - name: name_portfolio
+        description: 'Portfolio of the previous loan (POS, Cash, Cards, Cars); NULL when XNA.'
+      - name: name_product_type
+        description: 'Product type (x-sell, walk-in); NULL when XNA.'
+      - name: amt_application
+        description: 'Amount the client asked for.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_application is not null"
+      - name: amt_credit
+        description: 'Amount finally granted.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_credit is not null"
+      - name: amt_down_payment
+        description: 'Down payment.'
+      - name: amt_goods_price
+        description: 'Price of the goods.'
+      - name: amt_annuity
+        description: 'Annuity of the previous loan.'
+      - name: cnt_payment
+        description: 'Term of the previous loan in payments.'
+      - name: days_decision
+        description: 'Decision date as days relative to the current application (negative).'
+      - name: loan_age_months
+        description: 'Whole months between the decision and the current application. Relative, not a calendar age.'
+      - name: decision_cohort
+        description: '12-month block of loan_age_months (00-11m, 12-23m, ...). Loan age at the current application, not a calendar vintage.'
+      - name: is_approved
+        description: 'True when the previous application was approved.'
+      - name: n_installments
+        description: 'Scheduled installments of the loan (0 when it has none).'
+      - name: n_unpaid_installments
+        description: 'Installments without any payment.'
+      - name: n_late_installments
+        description: 'Installments paid with dpd > 0.'
+      - name: n_late_30p_installments
+        description: 'Installments paid with dpd > 30.'
+      - name: max_dpd
+        description: 'Worst days past due among paid installments.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "max_dpd is not null"
+      - name: dpd_bucket
+        description: 'Delinquency bucket of the loan worst DPD: 0, 1-30, 31-60, 61-90, 90+; NULL when nothing was paid.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+']
+      - name: amt_due_total
+        description: 'Sum of the installment amounts due.'
+      - name: amt_paid_total
+        description: 'Sum of the installment amounts paid.'
+      - name: has_pos_history
+        description: 'True when the loan has monthly POS / cash snapshots.'
+      - name: pos_max_sk_dpd_def
+        description: 'Worst monthly DPD with tolerance in the POS snapshots. Separate from the installment DPD on purpose.'
+      - name: has_card_history
+        description: 'True when the loan is a credit card with monthly balances.'
+      - name: cc_max_sk_dpd_def
+        description: 'Worst monthly DPD with tolerance in the card balances.'
+
+  - name: fct_installments
+    description: >
+      One row per scheduled installment of a TRAIN client, incremental (merge on installment_id, strategy explained in the model). Versions
+      and partial payments are already collapsed (see int_installment_schedule). Installments of loans without a previous_application
+      row are kept with has_loan_record = false so client-level delinquency does not lose them.
+    columns:
+      - name: installment_id
+        description: 'Primary key: hash of sk_id_prev and num_instalment_number.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_prev
+        description: 'Loan identifier; foreign key to fct_loans when has_loan_record.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_loans')
+                field: sk_id_prev
+              config:
+                where: "has_loan_record"
+      - name: sk_id_curr
+        description: 'Client identifier, foreign key to dim_client.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_client')
+                field: sk_id_curr
+      - name: num_instalment_number
+        description: 'Installment number within the loan.'
+      - name: has_loan_record
+        description: 'False for the installments of loans that have no previous_application row (orphan loans, cause unknown).'
+      - name: n_versions
+        description: 'Schedule versions of the installment.'
+      - name: n_payments
+        description: 'Payment rows of the installment (0 when unpaid).'
+      - name: due_day
+        description: 'Due date as days relative to the current application.'
+      - name: amt_due
+        description: 'Amount due (sum over versions).'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_due is not null"
+      - name: amt_paid
+        description: 'Amount paid; NULL when unpaid.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_paid is not null"
+      - name: amt_shortfall
+        description: 'Amount due minus paid for underpaid installments; NULL otherwise.'
+      - name: first_payment_day
+        description: 'Day of the first payment.'
+      - name: last_payment_day
+        description: 'Day of the last payment.'
+      - name: days_past_due_raw
+        description: 'last_payment_day - due_day; negative means paid early; NULL when unpaid.'
+      - name: dpd
+        description: 'Days past due, floored at 0; NULL when unpaid.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "dpd is not null"
+      - name: dpd_bucket
+        description: 'Delinquency bucket: 0, 1-30, 31-60, 61-90, 90+; NULL when unpaid.'
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['0', '1-30', '31-60', '61-90', '90+']
+      - name: is_unpaid
+        description: 'True when there is no payment at all.'
+        data_tests:
+          - not_null
+      - name: is_underpaid
+        description: 'True when paid less than due by more than 1 cent.'
+      - name: is_overpaid
+        description: 'True when paid more than due by more than 1 cent.'
+      - name: is_paid_before_decision
+        description: 'True when the last payment precedes the decision date of its loan (data anomaly, finding 15); false without loan record.'
+      - name: loaded_at
+        description: 'Latest RAW load timestamp of the source rows; the incremental watermark.'
+
+  - name: mart_credit_risk
+    description: >
+      Default rate and exposure of the TRAIN clients, sliced by one segment dimension at a time (long format: one row per dimension and value).
+      Every dimension partitions the train clients exactly once, so each one sums to the same totals. Rates are per CLIENT. The dpd_bucket
+      dimension has a separate unpaid bucket (clients with any unpaid installment, days unknown). Observation kept on purpose: default rate
+      rises with worst DPD up to 61-90 and falls at 90+, largely because most 90+ events are more than 24 months old (see
+      docs/data_quality_findings.md).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [dimension, dimension_value]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "n_defaults <= n_clients"
+    columns:
+      - name: dimension
+        description: 'Segment dimension: name_contract_type, code_gender, age_band, income_band, name_education_type, name_income_type, region_rating_client, tenure_cohort, dpd_bucket or worst_dpd_bucket_12m.'
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['name_contract_type', 'code_gender', 'age_band', 'income_band', 'name_education_type', 'name_income_type', 'region_rating_client', 'tenure_cohort', 'dpd_bucket', 'worst_dpd_bucket_12m']
+      - name: dimension_value
+        description: 'Value of the dimension (NULL source values appear as unknown).'
+        data_tests:
+          - not_null
+      - name: n_clients
+        description: 'Train clients in the segment.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+      - name: n_defaults
+        description: 'Clients in the segment with is_default = true.'
+      - name: default_rate
+        description: 'n_defaults / n_clients, between 0 and 1. Per client, not per loan.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: default_rate_ci_low
+        description: 'Lower bound of the Wilson 95% confidence interval of default_rate.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: default_rate_ci_high
+        description: 'Upper bound of the Wilson 95% confidence interval of default_rate.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: share_of_clients
+        description: 'Share of the train clients that fall in this segment within its dimension.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: exposure_application_credit
+        description: 'Sum of the credit amount of the current application of the segment clients.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+      - name: exposure_bureau_active_debt
+        description: 'Sum of outstanding debt of active bureau credits of the segment clients (negative debts excluded). Reported separately, never added to the application credit.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+
+  - name: mart_vintage_curves
+    description: >
+      Vintage curves of POS / cash loans of train clients. A cohort is the 12-month block of the loan decision measured in months before the
+      client's current application (loan age at application), NOT a calendar vintage: the dataset has no absolute dates. Months on book is
+      relative to the loan itself. Metric: cumulative share of loans that reached 30+ DPD by month on book m, over loans observable at m.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [cohort, months_on_book]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "n_loans_ever_30p <= n_loans_observable and n_loans_observable <= n_loans_in_cohort"
+    columns:
+      - name: cohort
+        description: 'Decision cohort: 12-month block of months before the current application (00-11m, 12-23m, ...).'
+        data_tests:
+          - not_null
+      - name: months_on_book
+        description: 'Months since the first observed snapshot of the loan (0 to 95).'
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 95
+      - name: n_loans_in_cohort
+        description: 'Approved POS / cash loans of train clients in the cohort (left-censored loans excluded).'
+      - name: n_loans_observable
+        description: 'Loans of the cohort observed at least this many months on book (shrinks as months on book grows: right-censoring).'
+      - name: n_loans_ever_30p
+        description: 'Observable loans that reached 30+ DPD (raw sk_dpd) at or before this month on book.'
+      - name: cumulative_30p_rate
+        description: 'n_loans_ever_30p / n_loans_observable, between 0 and 1.'
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
