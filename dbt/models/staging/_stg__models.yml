@@ -1,0 +1,494 @@
+version: 2
+
+models:
+  - name: stg_application_train
+    description: 'One row per loan application (SK_ID_CURR) with applicant demographics, income, housing and the TARGET default flag. Typed 1:1 from RAW; XNA codes and the 365243 DAYS_EMPLOYED placeholder are nulled and flagged.'
+    columns:
+      - name: sk_id_curr
+        description: 'Primary key.'
+        data_tests:
+          - unique
+          - not_null
+      - name: target
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "target is not null"
+              config:
+                severity: warn
+      - name: name_contract_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Cash loans', 'Revolving loans']
+      - name: code_gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['F', 'M']
+      - name: name_type_suite
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Children', 'Family', 'Group of people', 'Other_A', 'Other_B', 'Spouse, partner', 'Unaccompanied']
+      - name: name_income_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Businessman', 'Commercial associate', 'Maternity leave', 'Pensioner', 'State servant', 'Student', 'Unemployed', 'Working']
+      - name: name_education_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Academic degree', 'Higher education', 'Incomplete higher', 'Lower secondary', 'Secondary / secondary special']
+      - name: name_family_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Civil marriage', 'Married', 'Separated', 'Single / not married', 'Unknown', 'Widow']
+      - name: name_housing_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Co-op apartment', 'House / apartment', 'Municipal apartment', 'Office apartment', 'Rented apartment', 'With parents']
+      - name: occupation_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Accountants', 'Cleaning staff', 'Cooking staff', 'Core staff', 'Drivers', 'HR staff', 'High skill tech staff', 'IT staff', 'Laborers', 'Low-skill Laborers', 'Managers', 'Medicine staff', 'Private service staff', 'Realty agents', 'Sales staff', 'Secretaries', 'Security staff', 'Waiters/barmen staff']
+      - name: weekday_appr_process_start
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['FRIDAY', 'MONDAY', 'SATURDAY', 'SUNDAY', 'THURSDAY', 'TUESDAY', 'WEDNESDAY']
+      - name: organization_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Advertising', 'Agriculture', 'Bank', 'Business Entity Type 1', 'Business Entity Type 2', 'Business Entity Type 3', 'Cleaning', 'Construction', 'Culture', 'Electricity', 'Emergency', 'Government', 'Hotel', 'Housing', 'Industry: type 1', 'Industry: type 10', 'Industry: type 11', 'Industry: type 12', 'Industry: type 13', 'Industry: type 2', 'Industry: type 3', 'Industry: type 4', 'Industry: type 5', 'Industry: type 6', 'Industry: type 7', 'Industry: type 8', 'Industry: type 9', 'Insurance', 'Kindergarten', 'Legal Services', 'Medicine', 'Military', 'Mobile', 'Other', 'Police', 'Postal', 'Realtor', 'Religion', 'Restaurant', 'School', 'Security', 'Security Ministries', 'Self-employed', 'Services', 'Telecom', 'Trade: type 1', 'Trade: type 2', 'Trade: type 3', 'Trade: type 4', 'Trade: type 5', 'Trade: type 6', 'Trade: type 7', 'Transport: type 1', 'Transport: type 2', 'Transport: type 3', 'Transport: type 4', 'University']
+      - name: fondkapremont_mode
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['not specified', 'org spec account', 'reg oper account', 'reg oper spec account']
+      - name: housetype_mode
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['block of flats', 'specific housing', 'terraced house']
+      - name: wallsmaterial_mode
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Block', 'Mixed', 'Monolithic', 'Others', 'Panel', 'Stone, brick', 'Wooden']
+      - name: emergencystate_mode
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['No', 'Yes']
+      - name: hour_appr_process_start
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 23
+                row_condition: "hour_appr_process_start is not null"
+              config:
+                severity: warn
+      - name: ext_source_1
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "ext_source_1 is not null"
+              config:
+                severity: warn
+      - name: ext_source_2
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "ext_source_2 is not null"
+              config:
+                severity: warn
+      - name: ext_source_3
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "ext_source_3 is not null"
+              config:
+                severity: warn
+      - name: days_birth
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: -1
+                row_condition: "days_birth is not null"
+              config:
+                severity: warn
+      - name: amt_income_total
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_income_total is not null"
+              config:
+                severity: warn
+      - name: amt_credit
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_credit is not null"
+              config:
+                severity: warn
+      - name: is_code_gender_xna
+        description: 'True when the source value was the XNA (not available) code; code_gender is NULL in that case.'
+      - name: is_organization_type_xna
+        description: 'True when the source value was the XNA (not available) code; organization_type is NULL in that case.'
+      - name: is_days_employed_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_employed is NULL in that case.'
+
+  - name: stg_bureau
+    description: 'One row per credit reported to the credit bureau (SK_ID_BUREAU) for a client of Home Credit.'
+    columns:
+      - name: sk_id_bureau
+        description: 'Primary key.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Foreign key to stg_application_train.sk_id_curr.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_application_train')
+                field: sk_id_curr
+              config:
+                severity: warn
+      - name: credit_active
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Active', 'Bad debt', 'Closed', 'Sold']
+      - name: credit_currency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['currency 1', 'currency 2', 'currency 3', 'currency 4']
+      - name: credit_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Another type of loan', 'Car loan', 'Cash loan (non-earmarked)', 'Consumer credit', 'Credit card', 'Interbank credit', 'Loan for business development', 'Loan for purchase of shares (margin lending)', 'Loan for the purchase of equipment', 'Loan for working capital replenishment', 'Microloan', 'Mobile operator loan', 'Mortgage', 'Real estate loan', 'Unknown type of loan']
+      - name: days_credit
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "days_credit is not null"
+              config:
+                severity: warn
+
+  - name: stg_bureau_balance
+    description: 'One row per bureau credit per month (sk_id_bureau, months_balance); status is the delinquency bucket of that month.'
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sk_id_bureau, months_balance]
+    columns:
+      - name: sk_id_bureau
+        description: 'Foreign key to stg_bureau.sk_id_bureau.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_bureau')
+                field: sk_id_bureau
+              config:
+                severity: warn
+      - name: months_balance
+        description: 'Part of the composite primary key.'
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "months_balance is not null"
+              config:
+                severity: warn
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['0', '1', '2', '3', '4', '5', 'C', 'X']
+
+  - name: stg_credit_card_balance
+    description: 'One row per credit card per month (sk_id_prev, months_balance). Source typo amt_recivable is kept as delivered.'
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sk_id_prev, months_balance]
+    columns:
+      - name: sk_id_prev
+        description: 'Foreign key to stg_previous_application.sk_id_prev.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_previous_application')
+                field: sk_id_prev
+              config:
+                severity: warn
+      - name: months_balance
+        description: 'Part of the composite primary key.'
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "months_balance is not null"
+              config:
+                severity: warn
+      - name: sk_id_curr
+        data_tests:
+          - not_null
+      - name: name_contract_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Active', 'Approved', 'Completed', 'Demand', 'Refused', 'Sent proposal', 'Signed']
+
+  - name: stg_installments_payments
+    description: 'One row per installment payment made on a previous Home Credit loan. An installment paid in parts has several rows, so the key is a surrogate hash (installment_payment_id).'
+    columns:
+      - name: installment_payment_id
+        description: 'Primary key.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_prev
+        description: 'Foreign key to stg_previous_application.sk_id_prev.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_previous_application')
+                field: sk_id_prev
+              config:
+                severity: warn
+      - name: sk_id_curr
+        data_tests:
+          - not_null
+      - name: days_instalment
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "days_instalment is not null"
+              config:
+                severity: warn
+      - name: days_entry_payment
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "days_entry_payment is not null"
+              config:
+                severity: warn
+      - name: amt_instalment
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                row_condition: "amt_instalment is not null"
+              config:
+                severity: warn
+
+  - name: stg_pos_cash_balance
+    description: 'One row per POS / cash loan per month (sk_id_prev, months_balance).'
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sk_id_prev, months_balance]
+    columns:
+      - name: sk_id_prev
+        description: 'Foreign key to stg_previous_application.sk_id_prev.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_previous_application')
+                field: sk_id_prev
+              config:
+                severity: warn
+      - name: months_balance
+        description: 'Part of the composite primary key.'
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "months_balance is not null"
+              config:
+                severity: warn
+      - name: sk_id_curr
+        data_tests:
+          - not_null
+      - name: name_contract_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Active', 'Amortized debt', 'Approved', 'Canceled', 'Completed', 'Demand', 'Returned to the store', 'Signed']
+      - name: is_name_contract_status_xna
+        description: 'True when the source value was the XNA (not available) code; name_contract_status is NULL in that case.'
+
+  - name: stg_previous_application
+    description: 'One row per previous Home Credit application (SK_ID_PREV). XNA codes and the 365243 day placeholders are nulled and flagged.'
+    columns:
+      - name: sk_id_prev
+        description: 'Primary key.'
+        data_tests:
+          - unique
+          - not_null
+      - name: sk_id_curr
+        description: 'Foreign key to stg_application_train.sk_id_curr.'
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_application_train')
+                field: sk_id_curr
+              config:
+                severity: warn
+      - name: name_contract_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Cash loans', 'Consumer loans', 'Revolving loans']
+      - name: weekday_appr_process_start
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['FRIDAY', 'MONDAY', 'SATURDAY', 'SUNDAY', 'THURSDAY', 'TUESDAY', 'WEDNESDAY']
+      - name: name_cash_loan_purpose
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Building a house or an annex', 'Business development', 'Buying a garage', 'Buying a holiday home / land', 'Buying a home', 'Buying a new car', 'Buying a used car', 'Car repairs', 'Education', 'Everyday expenses', 'Furniture', 'Gasification / water supply', 'Hobby', 'Journey', 'Medicine', 'Money for a third person', 'Other', 'Payments on other loans', 'Purchase of electronic equipment', 'Refusal to name the goal', 'Repairs', 'Urgent needs', 'Wedding / gift / holiday', 'XAP']
+      - name: name_contract_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Approved', 'Canceled', 'Refused', 'Unused offer']
+      - name: name_payment_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Cash through the bank', 'Cashless from the account of the employer', 'Non-cash from your account']
+      - name: code_reject_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['CLIENT', 'HC', 'LIMIT', 'SCO', 'SCOFR', 'SYSTEM', 'VERIF', 'XAP']
+      - name: name_type_suite
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Children', 'Family', 'Group of people', 'Other_A', 'Other_B', 'Spouse, partner', 'Unaccompanied']
+      - name: name_client_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['New', 'Refreshed', 'Repeater']
+      - name: name_goods_category
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Additional Service', 'Animals', 'Audio/Video', 'Auto Accessories', 'Clothing and Accessories', 'Computers', 'Construction Materials', 'Consumer Electronics', 'Direct Sales', 'Education', 'Fitness', 'Furniture', 'Gardening', 'Homewares', 'House Construction', 'Insurance', 'Jewelry', 'Medical Supplies', 'Medicine', 'Mobile', 'Office Appliances', 'Other', 'Photo / Cinema Equipment', 'Sport and Leisure', 'Tourism', 'Vehicles', 'Weapon']
+      - name: name_portfolio
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Cards', 'Cars', 'Cash', 'POS']
+      - name: name_product_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['walk-in', 'x-sell']
+      - name: channel_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['AP+ (Cash loan)', 'Car dealer', 'Channel of corporate sales', 'Contact center', 'Country-wide', 'Credit and cash offices', 'Regional / Local', 'Stone']
+      - name: name_seller_industry
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Auto technology', 'Clothing', 'Connectivity', 'Construction', 'Consumer electronics', 'Furniture', 'Industry', 'Jewelry', 'MLM partners', 'Tourism']
+      - name: name_yield_group
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['high', 'low_action', 'low_normal', 'middle']
+      - name: product_combination
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Card Street', 'Card X-Sell', 'Cash', 'Cash Street: high', 'Cash Street: low', 'Cash Street: middle', 'Cash X-Sell: high', 'Cash X-Sell: low', 'Cash X-Sell: middle', 'POS household with interest', 'POS household without interest', 'POS industry with interest', 'POS industry without interest', 'POS mobile with interest', 'POS mobile without interest', 'POS other with interest', 'POS others without interest']
+      - name: hour_appr_process_start
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 23
+                row_condition: "hour_appr_process_start is not null"
+              config:
+                severity: warn
+      - name: days_decision
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                max_value: 0
+                row_condition: "days_decision is not null"
+              config:
+                severity: warn
+      - name: is_name_contract_type_xna
+        description: 'True when the source value was the XNA (not available) code; name_contract_type is NULL in that case.'
+      - name: is_name_cash_loan_purpose_xna
+        description: 'True when the source value was the XNA (not available) code; name_cash_loan_purpose is NULL in that case.'
+      - name: is_name_payment_type_xna
+        description: 'True when the source value was the XNA (not available) code; name_payment_type is NULL in that case.'
+      - name: is_code_reject_reason_xna
+        description: 'True when the source value was the XNA (not available) code; code_reject_reason is NULL in that case.'
+      - name: is_name_client_type_xna
+        description: 'True when the source value was the XNA (not available) code; name_client_type is NULL in that case.'
+      - name: is_name_goods_category_xna
+        description: 'True when the source value was the XNA (not available) code; name_goods_category is NULL in that case.'
+      - name: is_name_portfolio_xna
+        description: 'True when the source value was the XNA (not available) code; name_portfolio is NULL in that case.'
+      - name: is_name_product_type_xna
+        description: 'True when the source value was the XNA (not available) code; name_product_type is NULL in that case.'
+      - name: is_name_seller_industry_xna
+        description: 'True when the source value was the XNA (not available) code; name_seller_industry is NULL in that case.'
+      - name: is_name_yield_group_xna
+        description: 'True when the source value was the XNA (not available) code; name_yield_group is NULL in that case.'
+      - name: is_days_first_drawing_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_first_drawing is NULL in that case.'
+      - name: is_days_first_due_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_first_due is NULL in that case.'
+      - name: is_days_last_due_1st_version_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_last_due_1st_version is NULL in that case.'
+      - name: is_days_last_due_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_last_due is NULL in that case.'
+      - name: is_days_termination_sentinel
+        description: 'True when the source value was the 365243 placeholder; days_termination is NULL in that case.'
