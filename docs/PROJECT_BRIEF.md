@@ -42,8 +42,8 @@ Public portfolio project on GitHub: a production-grade credit-risk data pipeline
 
 ## Phases (stop after each one and report)
 1. Structure + download + load (DONE)
-2. Staging + tests
-3. Intermediate + marts
+2. Staging + tests (DONE)
+3. Intermediate + marts (DONE)
 4. Orchestration (Airflow)
 5. CI + dbt docs + README + Metabase
 
