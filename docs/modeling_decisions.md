@@ -1,6 +1,6 @@
 # Modeling decisions (phase 3)
 
-Status: **proposal, pending owner approval** before any intermediate or mart SQL is written.
+Status: **approved by the owner** (section 10 records the decisions and the adjustments that came with them) and implemented in phase 3.
 Numbers quoted here were measured on the full dataset (local DuckDB over the Kaggle CSVs, no
 warehouse credits) and are reproduced by the dbt tests once the models exist.
 
@@ -78,8 +78,11 @@ All day columns are days relative to the current application (negative = past), 
   payment; the shortfall is carried in `amt_shortfall`, not converted into extra delinquency.
 - **Installments without payment** (2,890, both payment fields NULL): `dpd` is NULL,
   `is_unpaid = true`. No "days overdue so far" is invented, because the source has no
-  observation date that I could verify. They are excluded from buckets and counted in a
-  separate column, so they are visible and not silently treated as on time.
+  observation date that I could verify. At client level they are counted (`n_unpaid_installments`,
+  `has_unpaid_installment`). Measured: clients with an unpaid installment default at 18.14% against
+  8.04% without (1,075 clients, intervals far apart), so `mart_credit_risk` has a separate **`unpaid`**
+  bucket in the `dpd_bucket` dimension (precedence over the paid-installment bucket), never mixed
+  with 90+ because their days are unknown.
 - Payment before the decision date (706 rows, finding 15) is flagged `is_paid_before_decision`
   and kept.
 
@@ -96,14 +99,16 @@ All day columns are days relative to the current application (negative = past), 
   across all their installments (orphan loans included), else one client would count once per
   loan. Clients with no installment history get `no_history`.
 
-Maximum DPD is deliberately "worst ever", not "latest": it is a risk signal, and the dataset has
-no observation date to define "latest".
+Maximum DPD is deliberately "worst ever" in `worst_dpd_bucket`. The 90+ anomaly below showed that
+recency matters, so the mart also has `worst_dpd_bucket_12m` (only installments due in the 365 days
+before the current application).
 
 **Observed, not hidden.** Default rate by client worst bucket on the full data: 0 = 6.80%,
-1-30 = 9.23%, 31-60 = 10.84%, 61-90 = 14.39%, **90+ = 9.63%**, no history = 5.98%. The rate is
-monotone up to 61-90 and then drops at 90+. I have no verified explanation (catch-up payments of
-old arrears are a guess) and will report it as an observation in the mart description and the
-README, not smooth it away.
+1-30 = 9.23%, 31-60 = 10.84%, 61-90 = 14.39%, **90+ = 9.63%**, no history = 5.98%. The drop at 90+
+is statistically real (intervals do not overlap) and is largely a recency effect: 89% of the 90+
+clients have their worst DPD more than 24 months before the application (8.1% default), against 25.0%
+for the 90+ of the last 12 months. Full analysis and what the data does and does not support:
+`data_quality_findings.md`, "Investigation: default rate by worst DPD".
 
 ## 6. Cohorts and vintage without absolute dates
 
@@ -120,9 +125,12 @@ Two honest alternatives, both anchored on relative months:
    `days_decision` of the previous loan (months before the current application). Months on book
    (MOB) = `months_balance - first observed month` in POS_CASH. Verified: the first POS month
    is within 2 months of the decision for 99.2% of loans (891,838 of 898,903). Metric = cumulative
-   share of loans that reached 30+ DPD (`sk_dpd_def >= 30`) by MOB m, denominator = loans
+   share of loans that reached 30+ DPD by MOB m, denominator = loans
    observable at m (young cohorts have shorter curves, the normal right-censoring of vintages).
    Loans first seen at month -96, the start of the window, are left-censored and excluded.
+   **Deviation from the proposal:** the event is raw `sk_dpd >= 30`, not `sk_dpd_def >= 30`. The
+   tolerance variant reaches 30+ in only 768 of 936,325 loans and the curves would be flat at zero;
+   raw `sk_dpd` reaches it in 8,678 loans (0.9%).
 
 **Trade-off (what this does not give you).** A "cohort" here is *loan age at the client's current
 application*, not a calendar origination vintage: two loans in the same cohort were originated at
@@ -159,15 +167,19 @@ shown without pretending. Proposal: **replay history as simulated incremental lo
 - **Merge on `installment_id`**, not append: an installment already loaded can change later (a
   payment arrives for a row that had none), and append would keep the stale row next to the new one.
   Not `insert_overwrite`: there are no date partitions.
-- **Watermark** `loaded_at > max(loaded_at)` of the target (RAW audit column), then re-aggregate
-  *all* payment rows of the affected installments (a new partial payment must be added to the old
-  ones, not aggregated alone).
+- **Watermark** `loaded_at > max(loaded_at)` of the target. `int_installment_schedule` carries
+  `loaded_at` as the MAX over all source rows of the installment, so an installment that receives a
+  new payment row passes the filter and arrives fully re-aggregated (old and new payments together),
+  never aggregated from the delta alone.
 - **Honest limit.** `scripts/load_raw.py` reloads each table in full, so every `_loaded_at`
   changes on every load and the watermark then selects everything. The strategy pays off once the
   loader appends daily deltas (Airflow, phase 4); until then a run is a full, idempotent re-merge.
-- **Test in dev, three runs:** (1) first build, (2) immediately again: 0 rows processed,
-  (3) after re-running the loader: full re-merge, row count and unique test unchanged. Row counts
-  and `_loaded_at` bounds are logged for each run.
+- **Test in dev, three runs (measured):** (1) first build: 10,953,138 rows, 15 s; (2) again without
+  changes: 0 rows merged, 8.5 s (the int view still aggregates the whole source, so the saving is on the
+  write side); (3) after re-running the loader for `installments_payments` (every `_loaded_at` new): full
+  re-merge of 10,953,138 rows, 36 s, distinct `installment_id` still equals the row count. A business test
+  (`assert_fct_installments_reconcile_with_schedule`) checks row count, amounts and unpaid count against the
+  int layer on every build.
 
 ## 9. Segments, exposure and other choices
 
@@ -183,11 +195,16 @@ shown without pretending. Proposal: **replay history as simulated incremental lo
 - The moved reconciliation test (`assert_installments_reconcile_with_amount` at the installment
   grain) stays `warn`; the 219 + 3,234 real cases remain visible.
 
-## 10. Decisions I need from you
+## 10. Owner decisions (recorded)
 
-1. Facts restricted to the train universe (section 1).
-2. Two risk marts instead of one (section 2).
-3. Snapshot as simulated monthly replay on POS_CASH status (section 7), full on CI, last 12 months on dev.
-4. Unpaid installments get `dpd = NULL` and a flag, no invented overdue days (section 4).
-5. Client-level buckets use worst-ever DPD from installments; POS `sk_dpd_def` and bureau overdue
-   stay as separate columns, not merged into one number.
+1. Facts restricted to the train universe; orphan-loan installments kept with `has_loan_record = false`: approved.
+2. Two risk marts (`mart_credit_risk`, `mart_vintage_curves`): approved.
+3. SCD2 snapshot as a simulated monthly replay from POS_CASH status, full on ci and the last 12 months
+   on dev: approved. The README and the snapshot yml must say it is a simulation of monthly loads (done in
+   `snapshots/_snapshots.yml`).
+4. Unpaid installments: `dpd` NULL plus flag: approved, with the adjustment of the client columns
+   `n_unpaid_installments` / `has_unpaid_installment` and a separate `unpaid` bucket if the default
+   rate is clearly higher (it is: 18.14% vs 8.04%).
+5. Client bucket from the worst installment DPD, with POS `sk_dpd_def` and bureau overdue as separate columns: approved.
+6. Cohorts by tenure and vintage by `days_decision` with MOB, trade-off documented: approved.
+7. Added after the 90+ investigation: dimension `worst_dpd_bucket_12m`; vintage event on raw `sk_dpd`.

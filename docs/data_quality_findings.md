@@ -55,6 +55,72 @@ rule) use `error` severity and fail the build. Tests that describe how the sourc
 | 18 | `assert_bureau_overdue_within_credit_age` | `credit_day_overdue` larger than the age of the credit | 2 | warn | Immaterial; exclude from DPD features. |
 | 19 | `assert_days_past_due_are_possible` (error severity) | Negative DPD, or `sk_dpd_def` > `sk_dpd`, in POS, credit card and bureau | 0 | passes | none |
 
+## Investigation: default rate by worst DPD is not monotone at 90+
+
+Finding surfaced while building `mart_credit_risk`. Client-level worst DPD is taken from the paid
+installments of all the client's loans (`int_installment_schedule`); the default rate is the
+`TARGET` rate of the train clients. Computed on the full dataset (307,511 clients).
+
+**a) Sample size and confidence intervals (Wilson 95%).**
+
+| Worst DPD bucket | Clients | Defaults | Default rate | 95% CI |
+|---|---:|---:|---:|---|
+| 0 | 136,590 | 9,292 | 6.80% | 6.67 to 6.94% |
+| 1-30 | 136,109 | 12,560 | 9.23% | 9.08 to 9.38% |
+| 31-60 | 10,253 | 1,111 | 10.84% | 10.25 to 11.45% |
+| 61-90 | 1,598 | 230 | 14.39% | 12.76 to 16.20% |
+| 90+ | 7,093 | 683 | 9.63% | 8.96 to 10.34% |
+| no paid-installment history | 15,868 | 949 | 5.98% | 5.62 to 6.36% |
+
+The intervals of 61-90 and 90+ **do not overlap**: the drop is not sampling noise.
+
+**b) Recency of the worst DPD** (due day of the installment with the worst DPD; "last 12m" = due in the
+365 days before the current application).
+
+| Bucket | Worst DPD in last 12m | 12 to 24m ago | More than 24m ago |
+|---|---|---|---|
+| 0 | 6.73% (96,671) | 6.81% (19,173) | 7.12% (20,738) |
+| 1-30 | 12.81% (34,406) | 10.14% (24,794) | 7.33% (76,909) |
+| 31-60 | 21.86% (883) | 16.64% (1,058) | 8.93% (8,312) |
+| 61-90 | 21.23% (146) | 23.18% (302) | 11.22% (1,150) |
+| 90+ | **25.00% (164)** | **21.14% (615)** | **8.11% (6,314)** |
+
+(Clients in brackets.) Recent 90+ has the **highest** default rate of all (25.0%); old 90+ is at
+the level of the overall population (8.07%). Old events dominate the bucket: 6,314 of 7,093 clients
+(89%) have their worst DPD more than 24 months before the application. The same gradient (older
+worst DPD, lower default) appears in every bucket, not only in 90+. Two further cuts, for completeness:
+within 90+, clients with 2 to 3 installments over 90 days default at 16.5% and with one at 8.7%;
+clients whose worst DPD is above 365 days (2,825) default at 8.0%, the base rate.
+
+**c) What the data supports.**
+
+- *Supported*: the non-monotone shape is a **recency effect**. The 90+ bucket is mostly old
+  delinquency and old delinquency carries little information about the current application; recent
+  90+ is the riskiest group. Lifetime worst DPD mixes the two, which is why `mart_credit_risk` also
+  has the dimension `worst_dpd_bucket_12m`.
+- *Consistent but not testable*: selection bias (clients who fell behind long ago, recovered and came
+  back to apply are a filtered population). The data fits that story, but it cannot be told apart
+  from a plain "old delinquency fades" effect, because nothing in the dataset records why a client
+  is applying again. It stays a hypothesis.
+- *Not supported*: sample size (intervals do not overlap); a single extreme-DPD artefact (clients above 365 days
+  are 40% of 90+ and sit at the base rate, but the shape also holds for buckets 1-30 to 61-90, which have no such extremes).
+- No verified explanation for why old delinquency is so weakly predictive. Stated as such.
+
+## Investigation: clients with unpaid installments
+
+2,890 installments of all clients have no payment at all (finding 14); 1,075 train clients have at least one.
+
+| Group | Clients | Default rate | 95% CI |
+|---|---:|---:|---|
+| At least one unpaid installment | 1,075 | **18.14%** | 15.95 to 20.56% |
+| None | 306,436 | 8.04% | 7.94 to 8.13% |
+
+Clearly higher (intervals far apart). Decision: a separate **`unpaid`** bucket in the `dpd_bucket`
+dimension of `mart_credit_risk` (precedence over the paid-installment bucket), not mixed into 90+
+because the overdue days of an unpaid installment are unknown. Clients also carry
+`n_unpaid_installments` and `has_unpaid_installment`. Among these clients the default rate is
+13.3% to 26.3% depending on their DPD on paid installments, so the flag is not just a proxy of the bucket.
+
 ## Observations without a test (for context)
 
 - `days_registration` has 1 fractional value out of 307,511, so it is typed `double`; every other `days_*` column is integral and typed `bigint`.
