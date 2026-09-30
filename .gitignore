@@ -40,3 +40,6 @@ orchestration/airflow/airflow-webserver.pid
 .idea/
 .DS_Store
 Thumbs.db
+
+# dbt local user id
+.user.yml
