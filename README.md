@@ -30,29 +30,44 @@ that does exist (`pos_cash_balance.name_contract_status` for `months_balance` -9
 month at a time by `scripts/replay_loan_status.py`, which runs `dbt snapshot --vars '{as_of_month: m}'` for
 each month m, as if a new monthly load had arrived. `dbt_valid_from` / `dbt_valid_to` are therefore the
 wall-clock times of the replay runs, **not business dates** (the dataset has no calendar dates); the
-simulated business timeline is the `as_of_month` column. The CI target replays all 96 months, dev the last 12.
+simulated business timeline is the `as_of_month` column. The replay is run by the `replay_loan_status` Airflow DAG (manual only); by default it replays the last 12 months (`start_month=-12`), and `-96` replays the whole history (one dbt run per month).
 
 ## Orchestration (Airflow)
 
-One command starts Airflow locally (Docker required); UI at http://localhost:8080, no login:
+Airflow 3.1 runs locally in Docker. Create `.env` first (`cp .env.example .env`) and set your own
+`AIRFLOW__API_AUTH__JWT_SECRET` and `AIRFLOW__CORE__FERNET_KEY` (generation commands are in `.env.example`). Then one command starts it;
+UI at http://localhost:8080, no login:
 
 ```bash
 docker compose -f orchestration/airflow/docker-compose.yml up --build
 ```
 
-Unpause `credit_risk_daily` and trigger it (default target `ci`: DuckDB + the committed sample, no credentials).
+There are two DAGs. Both take a `target` param (`ci` by default: DuckDB + the committed sample, no credentials;
+`dev`/`prod` use Snowflake and the credentials in `.env`).
+
+**`credit_risk_daily`** - scheduled `@daily`, created paused, `catchup=False`. Loads RAW and builds and tests the dbt project:
 
 ```
-needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt_build
-               -> replay_snapshot -> test_snapshot -> verify
+needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt_build -> verify
 ```
 
-- Schedule `@daily`, `catchup=False`, `max_active_runs=1`, 2 retries with exponential backoff.
-- `target` (`ci`/`dev`/`prod`) and `replay_start_month` are run params. `dev`/`prod` also download from Kaggle and
-  need the credentials in `.env`, which compose loads if present.
-- The snapshot and the tests that read it are excluded from `dbt_build` and run after the replay, which fills the SCD2 table.
-- `verify` checks that the marts are populated and that RAW, staging and marts reconcile row counts.
-- dbt runs in its own virtualenv inside the image: its dependency pins conflict with Airflow's.
+- `download_data` runs only for `dev`/`prod`; `ci` uses the committed sample.
+- `dbt_build` is an [Astronomer Cosmos](https://astronomer.github.io/astronomer-cosmos/) task group: one Airflow task per
+  dbt model and one per model's tests, so a failure points at a model and a rerun resumes from it. Tests with
+  `severity: warn` are logged and do not fail the DAG; `severity: error` tests do.
+- It excludes `snp_loan_status` and everything downstream of it (the snapshot and the tests that read it).
+- `verify` checks that the marts are populated and that RAW, staging and marts reconcile.
+- 2 retries with exponential backoff per task.
+
+**`replay_loan_status`** - no schedule, manual trigger only. It is the *simulation* of monthly loads into the SCD2
+snapshot: `replay_snapshot -> test_snapshot -> verify_snapshot`. Params: `start_month` (default -12), `end_month`
+(default -1), `target` (default `ci`). It drops and rebuilds the snapshot, so it can be rerun; run `credit_risk_daily`
+first on the same target.
+
+dbt runs in its own virtualenv inside the image (its dependency pins conflict with Airflow's); Cosmos only needs the path
+to its executable. Warehouse-writing tasks share the Airflow pool `dbt_warehouse` (1 slot by default because DuckDB allows
+one writer; raise `DBT_POOL_SLOTS` in `.env` for Snowflake). DAG tests run inside the image:
+`docker compose -f orchestration/airflow/docker-compose.yml run --rm --no-deps --entrypoint bash airflow-scheduler -c "cd /opt/project && pytest tests/test_dags.py"`.
 
 ## Repository layout
 
@@ -61,7 +76,7 @@ needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt
 | `credit_risk_pipeline/` | Shared Python code (table registry, config, connections) |
 | `scripts/` | CLI entry points: download, sample, load, Snowflake setup |
 | `dbt/` | dbt project and `profiles.yml` (targets `dev`, `prod`, `ci`) |
-| `orchestration/airflow/` | Airflow DAGs (phase 4) |
+| `orchestration/airflow/` | Airflow DAGs, Dockerfile and docker-compose |
 | `data/sample/` | Deterministic 5,000-client sample used by CI |
 | `docs/` | Data quality findings and design notes |
 | `dashboard/` | Dashboard file (BI) |
