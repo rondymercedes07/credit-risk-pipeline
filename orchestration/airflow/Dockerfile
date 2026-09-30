@@ -7,6 +7,10 @@ FROM apache/airflow:3.1.8-python3.12
 USER root
 RUN python -m venv /opt/venv && chown -R airflow /opt/venv
 USER airflow
+# Cosmos renders the dbt project as Airflow tasks; it is installed in Airflow's own environment
+# (under Airflow's constraints, so it cannot break it) while dbt itself stays in /opt/venv.
+COPY orchestration/airflow/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-3.12.txt"
 RUN mkdir /tmp/project
 COPY --chown=airflow pyproject.toml README.md /tmp/project/
 COPY --chown=airflow credit_risk_pipeline /tmp/project/credit_risk_pipeline
