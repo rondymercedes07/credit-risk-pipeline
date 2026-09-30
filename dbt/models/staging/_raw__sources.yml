@@ -14,6 +14,10 @@ sources:
     tables:
       - name: application_train
         description: 'One row per loan application (SK_ID_CURR). Source file: application_train.csv.'
+      - name: application_test
+        description: >
+          One row per loan application of the Kaggle test set (SK_ID_CURR), same columns as application_train
+          without TARGET. Source file: application_test.csv.
       - name: bureau
         description: 'One row per credit reported to the bureau (SK_ID_BUREAU). Source file: bureau.csv.'
       - name: bureau_balance
