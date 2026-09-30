@@ -1,3 +1,7 @@
+{#- Materialized as a table on purpose. It aggregates 13.6M source rows and feeds fct_installments, two int models and ~10 tests: a view recomputed that aggregation on every reference (13 to 32 s per test on an XS warehouse). -#}
+
+{{ config(materialized='table') }}
+
 {#-
     Collapses installments_payments to one row per SCHEDULED installment, (sk_id_prev,
     num_instalment_number). The source has one row per payment AND per version, and it repeats the

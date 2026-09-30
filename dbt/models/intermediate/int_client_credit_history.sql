@@ -1,3 +1,7 @@
+{#- Materialized as a table on purpose. It joins five aggregates and is read by the risk mart and ~6 tests: a view recomputed everything on every reference. -#}
+
+{{ config(materialized='table') }}
+
 {#-
     One row per client (train and test) with everything the risk marts need about their past:
     worst DPD from installments (paid ones; unpaid are counted apart, decision in
