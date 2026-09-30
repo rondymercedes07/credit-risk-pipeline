@@ -7,8 +7,9 @@ x-airflow-common: &airflow-common
     context: ../..
     dockerfile: orchestration/airflow/Dockerfile
   env_file:
-    - path: ../../.env   # optional: Snowflake / Kaggle credentials for dev and prod targets
-      required: false
+    # Required: AIRFLOW__API_AUTH__JWT_SECRET and AIRFLOW__CORE__FERNET_KEY (see .env.example),
+    # plus the Snowflake / Kaggle variables for the dev and prod targets.
+    - ../../.env
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -41,7 +42,9 @@ services:
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
-    command: -c "airflow db migrate"
+    command: >
+      -c "airflow db migrate &&
+      airflow pools set dbt_warehouse $${DBT_POOL_SLOTS:-1} 'Serializes warehouse-writing tasks'"
     depends_on: *airflow-depends-on
 
   airflow-apiserver:
@@ -66,7 +69,9 @@ services:
 
   airflow-dag-processor:
     <<: *airflow-common
-    command: dag-processor
+    # Cosmos runs `dbt ls` while parsing, so the dbt packages must exist before the first parse.
+    entrypoint: /bin/bash
+    command: -c "cd /opt/project/dbt && dbt deps && exec /entrypoint airflow dag-processor"
     depends_on:
       airflow-init:
         condition: service_completed_successfully
