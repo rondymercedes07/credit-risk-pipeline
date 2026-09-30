@@ -37,7 +37,7 @@ def make_scalar(target: str) -> Callable[[str], int]:
     return scalar
 
 
-def run_checks(scalar: Callable[[str], int]) -> list[str]:
+def run_checks(scalar: Callable[[str], int], with_snapshot: bool = False) -> list[str]:
     """Return one message per failed check (empty list = everything reconciles)."""
     failures: list[str] = []
 
@@ -59,7 +59,8 @@ def run_checks(scalar: Callable[[str], int]) -> list[str]:
     if mart_clients != raw_train:
         failures.append(f"mart_credit_risk covers {mart_clients} clients, raw has {raw_train}")
 
-    if scalar("select count(*) from marts.snp_loan_status") == 0:
+    # The snapshot is filled by the separate replay_loan_status DAG, not by the daily run.
+    if with_snapshot and scalar("select count(*) from marts.snp_loan_status") == 0:
         failures.append("marts.snp_loan_status is empty (snapshot replay did not run)")
 
     return failures
@@ -68,9 +69,10 @@ def run_checks(scalar: Callable[[str], int]) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--target", choices=config.TARGETS, required=True)
+    parser.add_argument("--with-snapshot", action="store_true", help="also check the snapshot")
     args = parser.parse_args()
 
-    failures = run_checks(make_scalar(args.target))
+    failures = run_checks(make_scalar(args.target), args.with_snapshot)
     if failures:
         sys.exit("Verification failed:\n - " + "\n - ".join(failures))
     print(f"Verification passed on target {args.target}.")

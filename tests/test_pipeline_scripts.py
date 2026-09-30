@@ -98,7 +98,7 @@ def test_verify_pipeline_reports_every_failed_check():
     def scalar(sql: str) -> int:
         return 0 if "marts.fct_loans" in sql or "snp_loan_status" in sql else 10
 
-    failures = verify_pipeline.run_checks(scalar)
+    failures = verify_pipeline.run_checks(scalar, with_snapshot=True)
     assert "marts.fct_loans is empty" in failures
     assert any("snp_loan_status" in f for f in failures)
     assert not any("staging lost" in f for f in failures)  # raw and staging both report 10
