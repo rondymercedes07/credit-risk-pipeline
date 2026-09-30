@@ -1,0 +1,42 @@
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+kaggle.json
+profiles.local.yml
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.sqlfluff_cache/
+
+# Raw dataset (downloaded from Kaggle, ~2.7 GB) and local warehouse
+data/raw/
+data/ci/
+*.duckdb
+*.duckdb.wal
+*.zip
+
+# dbt artifacts
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+logs/
+
+# Airflow local state
+orchestration/airflow/logs/
+orchestration/airflow/airflow.db
+orchestration/airflow/airflow-webserver.pid
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
