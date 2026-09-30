@@ -1,0 +1,28 @@
+# No secrets here: everything comes from environment variables (see .env.example).
+# Run dbt from this directory (dbt picks up ./profiles.yml) or set DBT_PROFILES_DIR.
+credit_risk:
+  target: ci
+  outputs:
+    ci:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '../data/ci/credit_risk.duckdb') }}"
+      schema: staging
+      threads: 4
+
+    dev: &snowflake
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'CREDIT_RISK_ENGINEER') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'CREDIT_RISK_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE_DEV', 'CREDIT_RISK_DEV') }}"
+      schema: STAGING
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      threads: 4
+      client_session_keep_alive: false
+
+    prod:
+      <<: *snowflake
+      database: "{{ env_var('SNOWFLAKE_DATABASE_PROD', 'CREDIT_RISK_PROD') }}"
+      threads: 8

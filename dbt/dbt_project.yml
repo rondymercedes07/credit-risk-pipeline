@@ -1,0 +1,25 @@
+name: credit_risk
+version: "0.1.0"
+config-version: 2
+profile: credit_risk
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "dbt_packages"]
+
+# Layers map 1:1 to warehouse schemas (see macros/generate_schema_name.sql).
+models:
+  credit_risk:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts
