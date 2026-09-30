@@ -1,0 +1,37 @@
+version: 2
+
+snapshots:
+  - name: snp_loan_status
+    description: >
+      SCD2 history of the contract status of POS / cash loans. THIS IS A SIMULATION OF MONTHLY LOADS: the
+      source data is static, so a normal snapshot would never see a change. The history is replayed month
+      by month from pos_cash_balance (months_balance -96 to -1) by scripts/replay_loan_status.py, which runs
+      the snapshot once per month with --vars '{as_of_month: m}'. dbt_valid_from / dbt_valid_to are the real
+      wall-clock times of those replay runs (minutes apart), NOT business dates; the simulated business
+      timeline is the as_of_month column (relative months, there are no calendar dates in the dataset).
+      Full replay on the ci target; the last 12 months on dev to keep warehouse credits low.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sk_id_prev, dbt_valid_from]
+    columns:
+      - name: sk_id_prev
+        description: 'POS / cash loan identifier (unique key of the snapshot, one current row per loan).'
+        data_tests:
+          - not_null
+      - name: sk_id_curr
+        description: 'Client identifier.'
+      - name: name_contract_status
+        description: 'Contract status of the loan in that version (Active, Completed, Signed, Demand, ...). A change in this column closes the current version and opens a new one.'
+      - name: observed_month
+        description: 'months_balance of the source snapshot this status was read from (relative months, -1 = last month before the current application).'
+      - name: as_of_month
+        description: 'Simulated load month in which this version was detected (the replay variable). Not compared by the check strategy.'
+      - name: dbt_scd_id
+        description: 'dbt surrogate key of the version.'
+      - name: dbt_updated_at
+        description: 'Wall-clock time of the replay run that wrote the row.'
+      - name: dbt_valid_from
+        description: 'Wall-clock start of the version (replay run time, not a business date).'
+      - name: dbt_valid_to
+        description: 'Wall-clock end of the version; NULL for the current version.'
