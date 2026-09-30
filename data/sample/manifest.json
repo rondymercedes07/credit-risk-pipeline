@@ -1,0 +1,16 @@
+{
+  "seed": 42,
+  "n_clients": 5000,
+  "selection": "ORDER BY md5(seed || ':' || SK_ID_CURR) LIMIT n_clients",
+  "client_ids_sha256": "82e39ac7d748f3cb3b1b3931ae22d8b97ad4d93eb2fb2383cb1592dc526538e3",
+  "default_rate": 0.0774,
+  "row_counts": {
+    "application_train": 5000,
+    "bureau": 24285,
+    "bureau_balance": 244873,
+    "previous_application": 22888,
+    "installments_payments": 187725,
+    "pos_cash_balance": 139767,
+    "credit_card_balance": 52116
+  }
+}
