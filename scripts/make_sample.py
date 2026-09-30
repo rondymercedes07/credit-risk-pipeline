@@ -3,14 +3,17 @@
 Selects N clients from application_train by ordering md5(seed || ':' || SK_ID_CURR)
 (stable across DuckDB versions and platforms, unlike RANDOM()/hash()), then keeps every
 related record: bureau, bureau_balance (via SK_ID_BUREAU), previous_application,
-installments_payments, POS_CASH_balance and credit_card_balance.
+installments_payments, POS_CASH_balance and credit_card_balance. Optionally also selects
+N clients from application_test (same ordering rule) and keeps their related records, so the
+sample mirrors the full dataset, where related tables cover both train and test clients.
 
 The sample is NOT stratified on TARGET, so it preserves the population default rate.
 Values are kept as text (same as the RAW layer). Output is zstd parquet, sorted for
 reproducible content, plus manifest.json. Fails if the total size exceeds --max-mb.
 
 Usage:
-    python scripts/make_sample.py [--n-clients 5000] [--seed 42] [--max-mb 20]
+    python scripts/make_sample.py [--n-clients 5000] [--n-test-clients 800] [--seed 42]
+                                  [--max-mb 20]
 """
 
 from __future__ import annotations
@@ -32,7 +35,9 @@ def _csv(name: str, raw_dir: Path) -> str:
     return f"read_csv('{path}', all_varchar=true, header=true)"
 
 
-def build_sample(raw_dir: Path, out_dir: Path, n_clients: int, seed: int) -> dict:
+def build_sample(
+    raw_dir: Path, out_dir: Path, n_clients: int, seed: int, n_test_clients: int = 0
+) -> dict:
     missing = [t.csv_file for t in RAW_TABLES if not (raw_dir / t.csv_file).exists()]
     if missing:
         sys.exit(f"Missing files in {raw_dir}: {missing}. Run scripts/download_data.py first.")
@@ -50,9 +55,26 @@ def build_sample(raw_dir: Path, out_dir: Path, n_clients: int, seed: int) -> dic
     )
     con.execute(
         f"""
+        CREATE TEMP TABLE sample_test_clients AS
+        SELECT SK_ID_CURR
+        FROM {_csv("application_test", raw_dir)}
+        ORDER BY md5('{seed}:' || SK_ID_CURR), SK_ID_CURR
+        LIMIT {int(n_test_clients)}
+        """
+    )
+    con.execute(
+        """
+        CREATE TEMP TABLE all_clients AS
+        SELECT SK_ID_CURR FROM sample_clients
+        UNION ALL
+        SELECT SK_ID_CURR FROM sample_test_clients
+        """
+    )
+    con.execute(
+        f"""
         CREATE TEMP TABLE sample_bureau AS
         SELECT SK_ID_BUREAU FROM {_csv("bureau", raw_dir)}
-        WHERE SK_ID_CURR IN (SELECT SK_ID_CURR FROM sample_clients)
+        WHERE SK_ID_CURR IN (SELECT SK_ID_CURR FROM all_clients)
         """
     )
 
@@ -60,8 +82,12 @@ def build_sample(raw_dir: Path, out_dir: Path, n_clients: int, seed: int) -> dic
     for table in RAW_TABLES:
         if table.name == "bureau_balance":
             key, keys_table = "SK_ID_BUREAU", "sample_bureau"
-        else:
+        elif table.name == "application_test":
+            key, keys_table = "SK_ID_CURR", "sample_test_clients"
+        elif table.name == "application_train":
             key, keys_table = "SK_ID_CURR", "sample_clients"
+        else:
+            key, keys_table = "SK_ID_CURR", "all_clients"
         target = (out_dir / table.sample_file).as_posix()
         con.execute(
             f"""
@@ -77,6 +103,8 @@ def build_sample(raw_dir: Path, out_dir: Path, n_clients: int, seed: int) -> dic
         ).fetchone()[0]
 
     ids = [r[0] for r in con.execute("SELECT SK_ID_CURR FROM sample_clients ORDER BY 1").fetchall()]
+    test_rows = con.execute("SELECT SK_ID_CURR FROM sample_test_clients ORDER BY 1").fetchall()
+    test_ids = [r[0] for r in test_rows]
     app_sample = (out_dir / TABLES_BY_NAME["application_train"].sample_file).as_posix()
     default_rate = con.execute(
         f"""
@@ -89,6 +117,8 @@ def build_sample(raw_dir: Path, out_dir: Path, n_clients: int, seed: int) -> dic
         "n_clients": len(ids),
         "selection": "ORDER BY md5(seed || ':' || SK_ID_CURR) LIMIT n_clients",
         "client_ids_sha256": hashlib.sha256(",".join(ids).encode()).hexdigest(),
+        "n_test_clients": len(test_ids),
+        "test_client_ids_sha256": hashlib.sha256(",".join(test_ids).encode()).hexdigest(),
         "default_rate": round(default_rate, 6),
         "row_counts": counts,
     }
@@ -101,11 +131,19 @@ def main() -> None:
     parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
     parser.add_argument("--out-dir", type=Path, default=SAMPLE_DIR)
     parser.add_argument("--n-clients", type=int, default=5000)
+    parser.add_argument(
+        "--n-test-clients",
+        type=int,
+        default=800,
+        help="clients from application_test (same ~1.6%% fraction as train)",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-mb", type=float, default=20.0)
     args = parser.parse_args()
 
-    manifest = build_sample(args.raw_dir, args.out_dir, args.n_clients, args.seed)
+    manifest = build_sample(
+        args.raw_dir, args.out_dir, args.n_clients, args.seed, args.n_test_clients
+    )
     total_mb = sum(p.stat().st_size for p in args.out_dir.glob("*.parquet")) / 1e6
     print(json.dumps(manifest, indent=2))
     print(f"Total parquet size: {total_mb:.1f} MB (limit {args.max_mb} MB)")

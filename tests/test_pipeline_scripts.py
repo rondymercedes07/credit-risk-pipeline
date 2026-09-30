@@ -23,6 +23,17 @@ def test_sample_is_deterministic_and_complete(synthetic_raw, tmp_path):
     assert a["row_counts"]["bureau_balance"] == 60
 
 
+def test_sample_includes_test_clients_with_their_related_records(synthetic_raw, tmp_path):
+    m = make_sample.build_sample(synthetic_raw, tmp_path, n_clients=10, seed=42, n_test_clients=4)
+    assert m["n_test_clients"] == 4
+    assert m["row_counts"]["application_test"] == 4
+    assert m["row_counts"]["application_train"] == 10
+    # 14 clients x 2 bureau records; the train selection itself is unchanged by the test sample
+    assert m["row_counts"]["bureau"] == 28
+    base = make_sample.build_sample(synthetic_raw, tmp_path / "base", n_clients=10, seed=42)
+    assert m["client_ids_sha256"] == base["client_ids_sha256"]
+
+
 def test_sample_has_no_orphans(synthetic_raw, tmp_path):
     make_sample.build_sample(synthetic_raw, tmp_path, n_clients=10, seed=1)
     con = duckdb.connect()

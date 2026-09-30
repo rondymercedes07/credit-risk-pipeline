@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from credit_risk_pipeline.tables import TABLES_BY_NAME  # noqa: E402
 
 N_CLIENTS = 40
+N_TEST_CLIENTS = 12
 
 
 def _write(path: Path, header: list[str], rows: list[list[str]]) -> None:
@@ -22,7 +23,7 @@ def _write(path: Path, header: list[str], rows: list[list[str]]) -> None:
 
 @pytest.fixture
 def synthetic_raw(tmp_path: Path) -> Path:
-    """Tiny fake versions of the 7 Home Credit files (SYNTHETIC, not real data)."""
+    """Tiny fake versions of the 8 Home Credit files (SYNTHETIC, not real data)."""
     raw = tmp_path / "raw"
     raw.mkdir()
     t = TABLES_BY_NAME
@@ -32,14 +33,25 @@ def synthetic_raw(tmp_path: Path) -> Path:
         ["SK_ID_CURR", "TARGET", "AMT_INCOME_TOTAL"],
         [[c, str(i % 5 == 0 and 1 or 0), ""] for i, c in enumerate(clients)],
     )
-    bureau = [[c, str(500000 + i * 10 + k)] for i, c in enumerate(clients) for k in range(2)]
+    test_clients = [str(300000 + i) for i in range(N_TEST_CLIENTS)]
+    _write(
+        raw / t["application_test"].csv_file,
+        ["SK_ID_CURR", "AMT_INCOME_TOTAL"],
+        [[c, ""] for c in test_clients],
+    )
+    # related tables cover train AND test clients, as in the real dataset
+    bureau = [
+        [c, str(500000 + i * 10 + k)]
+        for i, c in enumerate(clients + test_clients)
+        for k in range(2)
+    ]
     _write(raw / t["bureau"].csv_file, ["SK_ID_CURR", "SK_ID_BUREAU"], bureau)
     _write(
         raw / t["bureau_balance"].csv_file,
         ["SK_ID_BUREAU", "MONTHS_BALANCE", "STATUS"],
         [[b[1], str(-m), "0"] for b in bureau for m in range(3)],
     )
-    prev = [[c, str(200000 + i)] for i, c in enumerate(clients)]
+    prev = [[c, str(200000 + i)] for i, c in enumerate(clients + test_clients)]
     _write(raw / t["previous_application"].csv_file, ["SK_ID_CURR", "SK_ID_PREV"], prev)
     _write(
         raw / t["installments_payments"].csv_file,

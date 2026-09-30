@@ -3,14 +3,17 @@
   "n_clients": 5000,
   "selection": "ORDER BY md5(seed || ':' || SK_ID_CURR) LIMIT n_clients",
   "client_ids_sha256": "82e39ac7d748f3cb3b1b3931ae22d8b97ad4d93eb2fb2383cb1592dc526538e3",
+  "n_test_clients": 800,
+  "test_client_ids_sha256": "893acc8dcacb6c84a1fd9b8d80f9e0941ad933bb1898aa6f49cdb4e9ad2232bd",
   "default_rate": 0.0774,
   "row_counts": {
     "application_train": 5000,
-    "bureau": 24285,
-    "bureau_balance": 244873,
-    "previous_application": 22888,
-    "installments_payments": 187725,
-    "pos_cash_balance": 139767,
-    "credit_card_balance": 52116
+    "application_test": 800,
+    "bureau": 28359,
+    "bureau_balance": 398470,
+    "previous_application": 27263,
+    "installments_payments": 221550,
+    "pos_cash_balance": 164144,
+    "credit_card_balance": 62250
   }
 }

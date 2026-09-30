@@ -29,6 +29,12 @@ RAW_TABLES: tuple[RawTable, ...] = (
         ("SK_ID_CURR", "TARGET"),
     ),
     RawTable(
+        "application_test",
+        "application_test.csv",
+        "one row per loan application without TARGET (SK_ID_CURR); Kaggle's hidden test set",
+        ("SK_ID_CURR",),
+    ),
+    RawTable(
         "bureau",
         "bureau.csv",
         "one row per credit reported to the bureau (SK_ID_BUREAU)",

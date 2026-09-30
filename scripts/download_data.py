@@ -1,7 +1,8 @@
 """Download the Home Credit Default Risk source files from Kaggle into data/raw/.
 
-Only the seven tables used by this project are fetched (not application_test, the
-submission template, etc.), one file at a time so a partial run can be resumed.
+Only the eight tables used by this project are fetched (the seven Home Credit tables plus
+application_test, which explains the orphan keys in the related tables; not the submission
+template, etc.), one file at a time so a partial run can be resumed.
 
 Credentials are never read by this script directly: the official Kaggle client resolves
 them (~/.kaggle/kaggle.json, KAGGLE_USERNAME/KAGGLE_KEY, KAGGLE_API_TOKEN, or OAuth via
