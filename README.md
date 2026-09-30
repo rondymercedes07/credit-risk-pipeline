@@ -23,6 +23,16 @@ flowchart LR
     end
 ```
 
+## SCD2 snapshot: a simulation of monthly loads
+
+`snp_loan_status` keeps the history of the contract status of POS / cash loans as an SCD2 table. **The
+dataset is static, so this history is a simulation, not something the pipeline observed.** The history
+that does exist (`pos_cash_balance.name_contract_status` for `months_balance` -96 to -1) is replayed one
+month at a time by `scripts/replay_loan_status.py`, which runs `dbt snapshot --vars '{as_of_month: m}'` for
+each month m, as if a new monthly load had arrived. `dbt_valid_from` / `dbt_valid_to` are therefore the
+wall-clock times of the replay runs, **not business dates** (the dataset has no calendar dates); the
+simulated business timeline is the `as_of_month` column. The CI target replays all 96 months, dev the last 12.
+
 ## Repository layout
 
 | Path | Purpose |
