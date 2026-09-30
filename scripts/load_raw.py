@@ -4,6 +4,11 @@ RAW contract: every source column is stored as text (VARCHAR), exactly as delive
 two audit columns (_loaded_at, _source_file). Typing and cleansing happen in dbt staging.
 Each table is reloaded atomically, so re-running never duplicates rows.
 
+Unchanged tables are skipped: RAW._LOAD_AUDIT (raw._load_audit on DuckDB) records, per table,
+the sha256 of the source file and the row count of the last successful load. A table is
+skipped only when the file hash matches AND the table in RAW still has the recorded row
+count; --force reloads everything regardless.
+
 Targets:
     ci    DuckDB file (data/ci/credit_risk.duckdb), default source: data/sample/*.parquet
     dev   Snowflake CREDIT_RISK_DEV,  default source: data/raw/*.csv
@@ -12,12 +17,14 @@ Targets:
 Usage:
     python scripts/load_raw.py --target ci
     python scripts/load_raw.py --target dev [--source sample] [--tables bureau,bureau_balance]
+    python scripts/load_raw.py --target dev --force      # reload even if nothing changed
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -61,17 +68,93 @@ def count_source_rows(path: Path) -> int:
     return duckdb.connect().execute(f"SELECT count(*) FROM {read_relation(path)}").fetchone()[0]
 
 
+# --------------------------------------------------------------------------- load audit / skip
+
+AUDIT_TABLE = "_load_audit"
+AUDIT_COLUMNS_DDL = (
+    "table_name VARCHAR, source_file VARCHAR, sha256 VARCHAR, row_count BIGINT, loaded_at TIMESTAMP"
+)
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def skip_decision(
+    source_sha: str,
+    audit: tuple[str, int] | None,
+    raw_rows: int | None,
+    force: bool,
+) -> tuple[bool, str]:
+    """Decide whether a table can be skipped. Returns (skip, reason).
+
+    audit is (sha256, row_count) of the last successful load, raw_rows the current row count of
+    the RAW table (None if it does not exist). Skipping requires all of: not forced, a previous
+    load on record, the same source hash, and a non-empty RAW table that still has the recorded
+    row count (so a truncated or tampered table is reloaded even if the file did not change).
+    """
+    if force:
+        return False, "forced"
+    if audit is None:
+        return False, "no previous load on record"
+    audited_sha, audited_rows = audit
+    if audited_sha != source_sha:
+        return False, "source file changed"
+    if not raw_rows:
+        return False, "RAW table is missing or empty"
+    if raw_rows != audited_rows:
+        return False, f"RAW has {raw_rows} rows, audit recorded {audited_rows}"
+    return True, "unchanged"
+
+
+def report(name: str, skipped: bool, reason: str) -> None:
+    status = "SKIP" if skipped else "LOAD"
+    print(f"{status} raw.{name:<24} {'skipped: ' if skipped else ''}{reason}")
+
+
 # --------------------------------------------------------------------------- DuckDB (ci)
 
 
 def load_duckdb(
-    tables: list[RawTable], source: str, db_path: Path, raw_dir: Path, sample_dir: Path
-):
+    tables: list[RawTable],
+    source: str,
+    db_path: Path,
+    raw_dir: Path,
+    sample_dir: Path,
+    force: bool = False,
+) -> dict[str, str]:
+    """Load the tables; returns {table: "loaded" | "skipped"}."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
     con.execute(f"CREATE SCHEMA IF NOT EXISTS {config.RAW_SCHEMA}")
+    audit_fq = f"{config.RAW_SCHEMA}.{AUDIT_TABLE}"
+    con.execute(f"CREATE TABLE IF NOT EXISTS {audit_fq} ({AUDIT_COLUMNS_DDL})")
+    outcome: dict[str, str] = {}
     for table in tables:
         path = source_path(table, source, raw_dir, sample_dir)
+        sha = file_sha256(path)
+        row = con.execute(
+            f"SELECT sha256, row_count FROM {audit_fq} WHERE table_name = ?", [table.name]
+        ).fetchone()
+        exists = con.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = ? "
+            "AND table_name = ?",
+            [config.RAW_SCHEMA, table.name],
+        ).fetchone()[0]
+        raw_rows = (
+            con.execute(f"SELECT count(*) FROM {config.RAW_SCHEMA}.{table.name}").fetchone()[0]
+            if exists
+            else None
+        )
+        skip, reason = skip_decision(sha, row, raw_rows, force)
+        report(table.name, skip, reason)
+        outcome[table.name] = "skipped" if skip else "loaded"
+        if skip:
+            continue
         expected = count_source_rows(path)
         con.execute(
             f"""
@@ -84,7 +167,13 @@ def load_duckdb(
         )
         loaded = con.execute(f"SELECT count(*) FROM {config.RAW_SCHEMA}.{table.name}").fetchone()[0]
         _reconcile(table.name, expected, loaded)
+        con.execute(f"DELETE FROM {audit_fq} WHERE table_name = ?", [table.name])
+        con.execute(
+            f"INSERT INTO {audit_fq} VALUES (?, ?, ?, ?, current_timestamp::TIMESTAMP)",
+            [table.name, path.name, sha, loaded],
+        )
     con.close()
+    return outcome
 
 
 def _reconcile(name: str, expected: int, loaded: int) -> None:
@@ -125,8 +214,14 @@ def sf_expected_columns(columns: list[str]) -> list[str]:
 
 
 def load_snowflake(
-    tables: list[RawTable], source: str, target: str, raw_dir: Path, sample_dir: Path
-):
+    tables: list[RawTable],
+    source: str,
+    target: str,
+    raw_dir: Path,
+    sample_dir: Path,
+    force: bool = False,
+) -> dict[str, str]:
+    """Load the tables; returns {table: "loaded" | "skipped"}."""
     missing = config.missing_snowflake_env()
     if missing:
         sys.exit(
@@ -135,11 +230,21 @@ def load_snowflake(
     import snowflake.connector  # imported lazily: not needed for the ci target
 
     con = snowflake.connector.connect(**config.snowflake_connect_kwargs(target))
+    outcome: dict[str, str] = {}
     try:
         cur = con.cursor()
+        cur.execute(f"CREATE TABLE IF NOT EXISTS RAW.{AUDIT_TABLE.upper()} ({AUDIT_COLUMNS_DDL})")
         cur.execute("CREATE TEMPORARY STAGE raw_load_stage")
         for table in tables:
             path = source_path(table, source, raw_dir, sample_dir)
+            sha = file_sha256(path)
+            skip, reason = skip_decision(
+                sha, _sf_audit(cur, table), _sf_raw_rows(cur, table), force
+            )
+            report(table.name, skip, reason)
+            outcome[table.name] = "skipped" if skip else "loaded"
+            if skip:
+                continue
             with tempfile.TemporaryDirectory() as tmp:
                 upload = path
                 if path.suffix == ".parquet":  # sample -> csv.gz so one COPY path serves both
@@ -148,12 +253,42 @@ def load_snowflake(
                         f"COPY (SELECT * FROM {read_relation(path)}) TO '{upload.as_posix()}' "
                         "(FORMAT csv, HEADER, COMPRESSION gzip)"
                     )
-                _load_snowflake_table(cur, table, path, upload)
+                loaded = _load_snowflake_table(cur, table, path, upload)
+            _sf_record(cur, table, path, sha, loaded)
     finally:
         con.close()
+    return outcome
 
 
-def _load_snowflake_table(cur, table: RawTable, source: Path, upload: Path) -> None:
+def _sf_audit(cur, table: RawTable) -> tuple[str, int] | None:
+    row = cur.execute(
+        f"SELECT sha256, row_count FROM RAW.{AUDIT_TABLE.upper()} WHERE table_name = %s",
+        (table.name,),
+    ).fetchone()
+    return (row[0], int(row[1])) if row else None
+
+
+def _sf_raw_rows(cur, table: RawTable) -> int | None:
+    exists = cur.execute(
+        "SELECT count(*) FROM information_schema.tables "
+        "WHERE table_schema = 'RAW' AND table_name = %s",
+        (table.name.upper(),),
+    ).fetchone()[0]
+    if not exists:
+        return None
+    return int(cur.execute(f"SELECT count(*) FROM RAW.{table.name.upper()}").fetchone()[0])
+
+
+def _sf_record(cur, table: RawTable, path: Path, sha: str, rows: int) -> None:
+    fq = f"RAW.{AUDIT_TABLE.upper()}"
+    cur.execute(f"DELETE FROM {fq} WHERE table_name = %s", (table.name,))
+    cur.execute(
+        f"INSERT INTO {fq} VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP())",
+        (table.name, path.name, sha, rows),
+    )
+
+
+def _load_snowflake_table(cur, table: RawTable, source: Path, upload: Path) -> int:
     columns = source_columns(source)
     expected_rows = count_source_rows(source)
     fq, fq_new = f"RAW.{table.name.upper()}", f"RAW.{table.name.upper()}__NEW"
@@ -180,6 +315,7 @@ def _load_snowflake_table(cur, table: RawTable, source: Path, upload: Path) -> N
     _reconcile(fq_new, expected_rows, loaded)
     cur.execute(f"ALTER TABLE {fq} SWAP WITH {fq_new}")  # atomic publish
     cur.execute(f"DROP TABLE {fq_new}")
+    return int(loaded)
 
 
 # --------------------------------------------------------------------------- CLI
@@ -195,6 +331,9 @@ def main() -> None:
     parser.add_argument("--raw-dir", type=Path, default=config.RAW_DIR)
     parser.add_argument("--sample-dir", type=Path, default=config.SAMPLE_DIR)
     parser.add_argument("--db-path", type=Path, help="DuckDB file (ci only)")
+    parser.add_argument(
+        "--force", action="store_true", help="reload every table even if its source is unchanged"
+    )
     args = parser.parse_args()
 
     source = args.source or ("sample" if args.target == "ci" else "full")
@@ -206,10 +345,15 @@ def main() -> None:
 
     if args.target == "ci":
         load_duckdb(
-            tables, source, args.db_path or config.duckdb_path(), args.raw_dir, args.sample_dir
+            tables,
+            source,
+            args.db_path or config.duckdb_path(),
+            args.raw_dir,
+            args.sample_dir,
+            args.force,
         )
     else:
-        load_snowflake(tables, source, args.target, args.raw_dir, args.sample_dir)
+        load_snowflake(tables, source, args.target, args.raw_dir, args.sample_dir, args.force)
 
 
 if __name__ == "__main__":

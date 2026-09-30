@@ -108,3 +108,74 @@ def test_verify_pipeline_passes_when_layers_reconcile():
     import verify_pipeline
 
     assert verify_pipeline.run_checks(lambda sql: 5) == []
+
+
+# --------------------------------------------------------------------------- load skip logic
+
+
+def _load(synthetic_raw, db, force=False):
+    return load_raw.load_duckdb(list(RAW_TABLES), "full", db, synthetic_raw, synthetic_raw, force)
+
+
+def test_second_load_of_an_unchanged_source_skips_every_table(synthetic_raw, tmp_path):
+    db = tmp_path / "ci.duckdb"
+    assert set(_load(synthetic_raw, db).values()) == {"loaded"}
+    assert set(_load(synthetic_raw, db).values()) == {"skipped"}
+
+
+def test_changed_source_reloads_only_that_table(synthetic_raw, tmp_path):
+    db = tmp_path / "ci.duckdb"
+    _load(synthetic_raw, db)
+    bureau = synthetic_raw / "bureau.csv"
+    bureau.write_text(bureau.read_text(encoding="utf-8") + "999999,999999\n", encoding="utf-8")
+    outcome = _load(synthetic_raw, db)
+    assert outcome["bureau"] == "loaded"
+    assert {v for k, v in outcome.items() if k != "bureau"} == {"skipped"}
+    con = duckdb.connect(str(db))
+    assert con.execute("SELECT count(*) FROM raw.bureau").fetchone()[0] == 105  # 104 + 1 new row
+
+
+def test_emptied_raw_table_is_reloaded_even_if_the_source_is_unchanged(synthetic_raw, tmp_path):
+    db = tmp_path / "ci.duckdb"
+    _load(synthetic_raw, db)
+    con = duckdb.connect(str(db))
+    con.execute("DELETE FROM raw.application_train")
+    con.close()
+    outcome = _load(synthetic_raw, db)
+    assert outcome["application_train"] == "loaded"
+    con = duckdb.connect(str(db))
+    assert con.execute("SELECT count(*) FROM raw.application_train").fetchone()[0] == 40
+
+
+def test_force_reloads_everything(synthetic_raw, tmp_path):
+    db = tmp_path / "ci.duckdb"
+    _load(synthetic_raw, db)
+    assert set(_load(synthetic_raw, db, force=True).values()) == {"loaded"}
+
+
+def test_audit_table_records_hash_and_row_count(synthetic_raw, tmp_path):
+    db = tmp_path / "ci.duckdb"
+    _load(synthetic_raw, db)
+    con = duckdb.connect(str(db))
+    sha, rows = con.execute(
+        "SELECT sha256, row_count FROM raw._load_audit WHERE table_name = 'application_train'"
+    ).fetchone()
+    assert sha == load_raw.file_sha256(synthetic_raw / "application_train.csv")
+    assert rows == 40
+    assert con.execute("SELECT count(*) FROM raw._load_audit").fetchone()[0] == len(RAW_TABLES)
+
+
+@pytest.mark.parametrize(
+    ("audit", "raw_rows", "force", "skip", "reason"),
+    [
+        (("a", 5), 5, False, True, "unchanged"),
+        (("b", 5), 5, False, False, "source file changed"),
+        (None, 5, False, False, "no previous load on record"),
+        (("a", 5), 0, False, False, "RAW table is missing or empty"),
+        (("a", 5), None, False, False, "RAW table is missing or empty"),
+        (("a", 5), 4, False, False, "RAW has 4 rows, audit recorded 5"),
+        (("a", 5), 5, True, False, "forced"),
+    ],
+)
+def test_skip_decision(audit, raw_rows, force, skip, reason):
+    assert load_raw.skip_decision("a", audit, raw_rows, force) == (skip, reason)
