@@ -169,6 +169,12 @@ Metabase on the Snowflake dev marts, defined as code: [`bi/metabase/README.md`](
 questions (global default rate, default by delinquency bucket, the recency explanation of the 90+ anomaly, unpaid
 installments vs the average, default by client seniority, exposure by income band) and how to recreate them.
 
+![Metabase dashboard](docs/images/metabase_dashboard.png)
+
+The recency question explains the 90+ anomaly (the worst delay in the last 12 months defaults at 25.0%, the old ones at 8.11%):
+
+![Default rate by recency of the worst delay](docs/images/metabase_dpd_recency.png)
+
 ## Costs (Snowflake)
 
 Measured on the project's resource monitor (10-credit quota): one **full load of the 58M rows cost about 0.20 credits**,
