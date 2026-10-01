@@ -198,8 +198,13 @@ def ensure_database(mb: Metabase) -> int:
     created = mb.call(
         "POST",
         "/api/database",
-        {"name": "Snowflake dev (marts)", "engine": "snowflake", "details": details,
-         "is_full_sync": True, "auto_run_queries": False},
+        {
+            "name": "Snowflake dev (marts)",
+            "engine": "snowflake",
+            "details": details,
+            "is_full_sync": True,
+            "auto_run_queries": False,
+        },
     )
     return created["id"]
 
