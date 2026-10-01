@@ -11,6 +11,7 @@ Elsewhere they are skipped. The secrets scan needs nothing and always runs.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -25,6 +26,9 @@ DAGS_DIR = AIRFLOW_DIR / "dags"
 def dagbag():
     pytest.importorskip("airflow")
     pytest.importorskip("cosmos")
+    # Cosmos caches `dbt ls` in an Airflow Variable. Without the cache the test needs no
+    # metadata database, and it really runs `dbt ls` (a warm cache once hid a broken parse).
+    os.environ["AIRFLOW__COSMOS__ENABLE_CACHE"] = "False"
     from airflow.models import DagBag
 
     return DagBag(dag_folder=str(DAGS_DIR), include_examples=False)

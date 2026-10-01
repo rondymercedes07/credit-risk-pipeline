@@ -3,3 +3,8 @@ packages:
     version: [">=1.3.0", "<2.0.0"]
   - package: metaplane/dbt_expectations
     version: [">=0.10.0", "<0.11.0"]
+  # Transitive dependency of dbt_expectations, declared explicitly: dbt compares the number of
+  # installed packages with the ones listed here when package-lock.yml is absent, and Cosmos
+  # parses a copy of the project without the lock file.
+  - package: godatadriven/dbt_date
+    version: [">=0.10.0", "<1.0.0"]
