@@ -45,7 +45,7 @@ Public portfolio project on GitHub: a production-grade credit-risk data pipeline
 2. Staging + tests (DONE)
 3. Intermediate + marts (DONE)
 4. Orchestration (Airflow) (DONE)
-5. CI + dbt docs + README + Metabase
+5. CI + dbt docs + README + Metabase (DONE)
 
 ## Rules
 - At the end of each phase, explain non-obvious decisions in 5-10 lines. The owner will defend this project in a technical interview and must understand every decision.

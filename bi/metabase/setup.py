@@ -50,7 +50,7 @@ order by case dimension_value when 'no_history' then 0 when '0' then 1 when '1-3
         {"graph.dimensions": ["DPD_BUCKET"], "graph.metrics": ["DEFAULT_RATE_PCT"]},
     ),
     (
-        "90+ looks milder than 61-90 because of recency: default rate by when the worst delay happened",
+        "Default rate by when the worst 90+ delay happened (recency)",
         "bar",
         """with paid as (
     select sk_id_curr, due_day, dpd from marts.fct_installments where dpd is not null
