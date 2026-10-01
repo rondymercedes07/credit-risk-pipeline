@@ -174,6 +174,8 @@ shown without pretending. Proposal: **replay history as simulated incremental lo
 - **Honest limit.** `scripts/load_raw.py` reloads each table in full, so every `_loaded_at`
   changes on every load and the watermark then selects everything. The strategy pays off once the
   loader appends daily deltas (Airflow, phase 4); until then a run is a full, idempotent re-merge.
+  *Update (phase 5):* `load_raw` now skips tables whose source hash is unchanged, so `_loaded_at` only moves when
+  the data does and an unchanged daily run merges 0 rows; a changed table still triggers a full re-merge.
 - **Test in dev, three runs (measured):** (1) first build: 10,953,138 rows, 15 s; (2) again without
   changes: 0 rows merged, 8.5 s (the int view still aggregates the whole source, so the saving is on the
   write side); (3) after re-running the loader for `installments_payments` (every `_loaded_at` new): full
