@@ -69,11 +69,10 @@ first on the same target.
 
 For `dev`/`prod`, the scheduler (which runs the tasks) mounts `~/.snowflake` read-only at `/run/snowflake` and overrides
 `SNOWFLAKE_PRIVATE_KEY_PATH` there (key file named `rsa_key.p8`; set `SNOWFLAKE_KEY_DIR` for another folder). The key is never copied into the image.
-For Snowflake set `DBT_POOL_SLOTS=4` in `.env` before `up` (the dbt threads of `dev`).
+Warehouse-writing tasks share the pool `dbt_warehouse`, which defaults to 1 slot (safe for `ci`: DuckDB allows one writer). For `dev`/`prod` raise it live, no restart: `docker compose -f orchestration/airflow/docker-compose.yml exec airflow-scheduler airflow pools set dbt_warehouse 4 "dbt tasks"` (4 matches the dbt threads of `dev`); set it back to 1 before running `ci` again.
 
 dbt runs in its own virtualenv inside the image (its dependency pins conflict with Airflow's); Cosmos only needs the path
-to its executable. Warehouse-writing tasks share the Airflow pool `dbt_warehouse` (1 slot by default because DuckDB allows
-one writer; raise `DBT_POOL_SLOTS` in `.env` for Snowflake). DAG tests run inside the image:
+to its executable. DAG tests run inside the image:
 `docker compose -f orchestration/airflow/docker-compose.yml run --rm --no-deps --entrypoint bash airflow-scheduler -c "cd /opt/project && pytest tests/test_dags.py"`.
 
 ## Repository layout
