@@ -1,0 +1,26 @@
+# Metabase on top of the Snowflake dev marts. Start with:
+#   docker compose -f bi/metabase/docker-compose.yml up -d
+# then create the connection and the dashboard once: python bi/metabase/setup.py
+# UI: http://localhost:3000
+services:
+  metabase:
+    image: metabase/metabase:v0.63.19
+    ports:
+      - "3000:3000"
+    environment:
+      # Metabase's own application database (users, saved questions, the Snowflake connection
+      # details) is an H2 file in the named volume below: local to this machine, never in the repo.
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_ANON_TRACKING_ENABLED: "false"
+    volumes:
+      - metabase-data:/metabase-data
+      # The Snowflake private key is mounted read-only from the host, never copied or uploaded.
+      # Set SNOWFLAKE_KEY_DIR if your key is not in ~/.snowflake (file must be rsa_key.p8).
+      - ${SNOWFLAKE_KEY_DIR:-${USERPROFILE:-${HOME}}/.snowflake}:/run/snowflake:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      retries: 20
+
+volumes:
+  metabase-data:
