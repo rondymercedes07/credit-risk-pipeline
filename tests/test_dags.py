@@ -135,3 +135,17 @@ def test_dbt_tasks_run_against_the_dag_param_target_not_cosmos_static_one(dagbag
         task.dbt_cmd_flags = templated  # the DagBag is shared by the other tests
     assert effective.count("--target") == 1
     assert effective[effective.index("--target") + 1] == target
+
+
+def test_download_is_skipped_for_ci_and_when_the_raw_files_exist(dagbag, tmp_path, monkeypatch):
+    from credit_risk_pipeline.tables import RAW_TABLES
+
+    fn = dagbag.dags["credit_risk_daily"].get_task("needs_download").python_callable
+    monkeypatch.setitem(fn.__globals__, "RAW_DIR", tmp_path)
+    assert fn(params={"target": "ci"}) == "skip_download"
+    assert fn(params={"target": "dev"}) == "download_data"  # data/raw is empty
+    for table in RAW_TABLES:
+        (tmp_path / table.csv_file).write_text("x")
+    assert fn(params={"target": "dev"}) == "skip_download"
+    (tmp_path / RAW_TABLES[0].csv_file).unlink()
+    assert fn(params={"target": "prod"}) == "download_data"  # one file missing is enough

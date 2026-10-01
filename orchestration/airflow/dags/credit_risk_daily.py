@@ -13,6 +13,7 @@ sample and needs no credentials; `dev` / `prod` run on Snowflake with the full d
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
@@ -30,6 +31,7 @@ from cosmos.operators.local import AbstractDbtLocalBase
 
 PROJECT = "/opt/project"
 DBT_PROJECT = f"{PROJECT}/dbt"
+RAW_DIR = Path(PROJECT) / "data" / "raw"
 DBT_EXECUTABLE = "/opt/venv/bin/dbt"
 TARGET = "{{ params.target }}"
 
@@ -98,8 +100,14 @@ with DAG(
 
     @task.branch
     def needs_download(params=None) -> str:
-        # The ci sample is committed to the repo; only full-dataset targets hit Kaggle.
-        return "skip_download" if params["target"] == "ci" else "download_data"
+        # ci uses the committed sample. Full-dataset targets download only what is missing
+        # from data/raw (the repo is bind-mounted at /opt/project, so this is the host folder).
+        if params["target"] == "ci":
+            return "skip_download"
+        from credit_risk_pipeline.tables import RAW_TABLES
+
+        missing = [t.csv_file for t in RAW_TABLES if not (RAW_DIR / t.csv_file).exists()]
+        return "download_data" if missing else "skip_download"
 
     branch = needs_download()
     skip_download = EmptyOperator(task_id="skip_download")
