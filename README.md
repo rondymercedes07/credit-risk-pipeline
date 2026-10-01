@@ -4,7 +4,7 @@
 [![dbt docs](https://img.shields.io/badge/dbt%20docs-GitHub%20Pages-orange)](https://rondymercedes07.github.io/credit-risk-pipeline/)
 
 A production-style data pipeline for credit risk: it takes the public
-[Home Credit Default Risk](https://www.kaggle.com/competitions/home-credit-default-risk) dataset (7 tables, 58M rows),
+[Home Credit Default Risk](https://www.kaggle.com/competitions/home-credit-default-risk) dataset (7 tables plus the `application_test` file, ~58M rows),
 loads it into Snowflake, models it with dbt (typed staging, intermediate logic, risk marts, an SCD2 snapshot), tests it
 (172 data tests, every failure on real data documented as a finding), orchestrates it with Airflow, and serves it in Metabase.
 The same dbt project also runs for free on DuckDB with a 5,000-client sample, which is what CI uses.
@@ -31,7 +31,6 @@ flowchart LR
     INT --> MARTS[(MARTS<br/>fct_ / dim_ / mart_)]
     INT --> SNAP[SCD2 snapshot<br/>simulated monthly loads]
     MARTS --> MB[Metabase]
-    MARTS --> PBI[Power BI]
     AF["Airflow + Cosmos<br/>credit_risk_daily<br/>replay_loan_status"] -. orchestrates .-> LR
     AF -. orchestrates .-> STG
     subgraph CI [GitHub Actions - DuckDB sample, no secrets]
@@ -53,7 +52,8 @@ python scripts/load_raw.py --target ci && (cd dbt && dbt deps && dbt build --tar
 ```
 
 That loads the 5,000-client sample into `data/ci/credit_risk.duckdb` and runs every model and test (expected:
-`PASS=179 WARN=7 ERROR=0`; the warns are documented findings).
+`PASS=179 WARN=7 ERROR=0`; the warns are documented findings. The snapshot and its 5 tests add 6 passes after the
+replay: 185 pass, 7 warn, 0 error in total).
 
 ### 2. Airflow (Docker), still on the free target
 
@@ -109,13 +109,11 @@ needs_download -> (skip_download | download_data) -> load_raw -> dbt_deps -> dbt
 `replay_snapshot -> test_snapshot -> verify_snapshot`. Params: `start_month` (default -12), `end_month` (-1), `target`.
 It drops and rebuilds the snapshot, so it is safe to rerun; run `credit_risk_daily` first on the same target.
 
-Screenshots (owner to add):
+Graph of a successful run (the `dbt_build` Cosmos group is one task per dbt model plus one per model's tests) and the Grid view:
 
-> TODO(owner): `docs/images/credit_risk_daily_graph.png` - graph with the `dbt_build` group expanded.
-> TODO(owner): `docs/images/credit_risk_daily_run_success.png` - Grid view of a successful run.
+![Airflow graph](docs/images/credit_risk_daily_graph.png)
 
-<!-- ![Airflow graph](docs/images/credit_risk_daily_graph.png) -->
-<!-- ![Airflow successful run](docs/images/credit_risk_daily_run_success.png) -->
+![Airflow grid](docs/images/credit_risk_daily_run_success.png)
 
 ## Design decisions and trade-offs
 
@@ -157,24 +155,19 @@ Every test that failed on the real data is a finding, not something to hide; all
 2. **Orphan keys explained by `application_test`.** 100% of the 251,103 bureau rows and 256,513 previous-application
    rows without a train client belong to clients of the test file. Loan-level orphans (1.25M installment rows, 340k POS,
    1.08M credit card) are *not* explained by it, and are documented as unexplained rather than guessed.
-3. **The 90+ bucket and recency.** The lifetime "90+" bucket (9.53%) defaults less than "61-90" (14.0%); 89% of its
-   clients had that delay more than 24 months before applying, and the recent ones default at 25.0%. The mart keeps a
+3. **The 90+ bucket and recency.** The lifetime "90+" bucket (9.53% in the mart; 9.63% counting the 96 clients that sit in the `unpaid` bucket) defaults
+   less than "61-90" (14.0%); 89% of those clients had that delay more than 24 months before applying, and the recent ones
+   default at 25.0%. The mart keeps a
    12-month worst-DPD bucket so the effect is visible.
 4. **Sentinels.** `DAYS_EMPLOYED = 365243` (55,374 rows, ~18%, exactly the rows with `ORGANIZATION_TYPE = 'XNA'`) and
    `XNA` in a dozen categorical columns become NULL plus an `is_*_sentinel` / `is_*_xna` flag, so no average is distorted
    and the original fact is kept.
 
-## Dashboards
+## Dashboard
 
-Metabase (Snowflake dev marts): [`bi/metabase/README.md`](bi/metabase/README.md) has the six questions and how to
-recreate them. Power BI: the `.pbix` goes in `dashboard/`.
-
-> TODO(owner): `docs/images/metabase_dashboard.png` - the whole "Credit risk: default story" dashboard.
-> TODO(owner): `docs/images/metabase_dpd_recency.png` - the delinquency bucket and recency charts side by side.
-> TODO(owner): `docs/images/powerbi_dashboard.png` - Power BI report (if built).
-
-<!-- ![Metabase dashboard](docs/images/metabase_dashboard.png) -->
-<!-- ![Power BI dashboard](docs/images/powerbi_dashboard.png) -->
+Metabase on the Snowflake dev marts, defined as code: [`bi/metabase/README.md`](bi/metabase/README.md) has the six
+questions (global default rate, default by delinquency bucket, the recency explanation of the 90+ anomaly, unpaid
+installments vs the average, default by client seniority, exposure by income band) and how to recreate them.
 
 ## Costs (Snowflake)
 
@@ -219,7 +212,6 @@ a delay, so per-run figures are approximate.
 | `bi/metabase/` | Metabase compose and dashboard-as-code |
 | `data/sample/` | Deterministic 5,000-client sample used by CI |
 | `docs/` | Findings, modeling decisions, orchestration notes, headline metrics |
-| `dashboard/` | Power BI file |
 | `.github/workflows/` | `ci.yml` (lint, test, dags) and `docs.yml` (dbt docs to GitHub Pages) |
 
 ## Development

@@ -72,5 +72,9 @@ group by 1 order by 1;
 ```
 
 Result: `worst DPD in last 12 months | 164 | 25.00`, `12 to 24 months ago | 615 | 21.14`, `more than 24 months ago | 6314 | 8.11`.
+Two populations, both correct: the 9.63% above (and the 164 / 615 / 6,314 split, 7,093 clients) covers every client whose worst
+paid delay exceeds 90 days. The `90+` bucket of `mart_credit_risk` has 6,997 clients and 9.53%, because 96 of them also have
+unpaid installments and sit in the mart's separate `unpaid` bucket (likewise `61-90`: 14.39% on 1,598 clients in the
+investigation, 14.00% on 1,536 in the mart).
 Days are relative to each client's own current application, not calendar dates. Sample sizes are small in the recent
 group (164 clients); say so next to the number.
