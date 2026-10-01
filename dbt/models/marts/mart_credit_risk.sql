@@ -13,6 +13,8 @@
     'name_contract_type', 'code_gender', 'age_band', 'income_band', 'name_education_type',
     'name_income_type', 'region_rating_client', 'tenure_cohort', 'dpd_bucket', 'worst_dpd_bucket_12m',
 ] %}
+{#- The first seven come from dim_client, the rest from int_client_credit_history. -#}
+{% set dim_client_dimensions = dimensions[:7] %}
 
 with clients as (
 
@@ -21,9 +23,15 @@ with clients as (
         d.is_default,
         d.amt_credit,
         h.bureau_active_debt,
-        {% for dim in dimensions -%}
-            coalesce(cast({{ 'd' if dim in ['name_contract_type', 'code_gender', 'age_band', 'income_band', 'name_education_type', 'name_income_type', 'region_rating_client'] else 'h' }}.{{ dim }} as varchar), 'unknown') as {{ dim }}{{ ',' if not loop.last }}
-        {% endfor %}
+    {% for dim in dimensions %}
+        coalesce(
+            cast(
+                {{ 'd' if dim in dim_client_dimensions else 'h' }}.{{ dim }} as varchar
+            ),
+            'unknown'
+        ) as {{ dim }}
+        {{- ',' if not loop.last }}
+    {% endfor %}
     from {{ ref('dim_client') }} as d
     inner join {{ ref('int_client_credit_history') }} as h on d.sk_id_curr = h.sk_id_curr
     where d.client_source = 'train'
@@ -75,11 +83,15 @@ select
     n_clients,
     n_defaults,
     default_rate,
-    (default_rate + 1.96 * 1.96 / (2 * n_clients)
-        - 1.96 * sqrt(default_rate * (1 - default_rate) / n_clients + 1.96 * 1.96 / (4 * n_clients * n_clients)))
+    (
+        default_rate + 1.96 * 1.96 / (2 * n_clients)
+        - 1.96 * sqrt(default_rate * (1 - default_rate) / n_clients + 1.96 * 1.96 / (4 * n_clients * n_clients))
+    )
     / (1 + 1.96 * 1.96 / n_clients) as default_rate_ci_low,
-    (default_rate + 1.96 * 1.96 / (2 * n_clients)
-        + 1.96 * sqrt(default_rate * (1 - default_rate) / n_clients + 1.96 * 1.96 / (4 * n_clients * n_clients)))
+    (
+        default_rate + 1.96 * 1.96 / (2 * n_clients)
+        + 1.96 * sqrt(default_rate * (1 - default_rate) / n_clients + 1.96 * 1.96 / (4 * n_clients * n_clients))
+    )
     / (1 + 1.96 * 1.96 / n_clients) as default_rate_ci_high,
     share_of_clients,
     exposure_application_credit,

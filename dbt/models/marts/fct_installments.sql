@@ -55,5 +55,5 @@ from {{ ref('int_installment_schedule') }} as s
 inner join {{ ref('stg_application_train') }} as t on s.sk_id_curr = t.sk_id_curr
 left join {{ ref('stg_previous_application') }} as p on s.sk_id_prev = p.sk_id_prev
 {% if is_incremental() %}
-    where s.loaded_at > (select max(loaded_at) from {{ this }})
+    where s.loaded_at > (select max(prev.loaded_at) from {{ this }} as prev)
 {% endif %}

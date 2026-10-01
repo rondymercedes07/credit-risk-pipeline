@@ -26,14 +26,27 @@ mismatch as (
 bucket as (
 
     select
-        (select coalesce(sum(n_clients), 0) from {{ ref('mart_credit_risk') }}
-            where dimension = 'dpd_bucket' and dimension_value = 'unpaid') as in_mart,
-        (select count(*) from {{ ref('int_client_credit_history') }} as h
+        (
+            select coalesce(sum(n_clients), 0) from {{ ref('mart_credit_risk') }}
+            where dimension = 'dpd_bucket' and dimension_value = 'unpaid'
+        ) as in_mart,
+        (
+            select count(*) from {{ ref('int_client_credit_history') }} as h
             inner join {{ ref('dim_client') }} as d on h.sk_id_curr = d.sk_id_curr and d.client_source = 'train'
-            where h.has_unpaid_installment) as in_history
+            where h.has_unpaid_installment
+        ) as in_history
 
 )
 
-select cast(sk_id_curr as bigint) as sk_id_curr, null as in_mart, null as in_history from mismatch
+select
+    cast(sk_id_curr as bigint) as sk_id_curr,
+    null as in_mart,
+    null as in_history
+from mismatch
 union all
-select null, in_mart, in_history from bucket where in_mart != in_history
+select
+    null,
+    in_mart,
+    in_history
+from bucket
+where in_mart != in_history

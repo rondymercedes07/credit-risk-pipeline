@@ -9,6 +9,6 @@
     )
 }}
 
-select * from {{ ref('int_loan_status_as_of') }}
+    select * from {{ ref('int_loan_status_as_of') }}
 
 {% endsnapshot %}

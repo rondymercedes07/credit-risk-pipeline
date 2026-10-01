@@ -11,14 +11,18 @@ with known_clients as (
 
 )
 
-select 'bureau' as source_table, b.sk_id_curr
+select
+    'bureau' as source_table,
+    b.sk_id_curr
 from {{ ref('stg_bureau') }} as b
 left join known_clients as k on b.sk_id_curr = k.sk_id_curr
 where k.sk_id_curr is null
 
 union all
 
-select 'previous_application', p.sk_id_curr
+select
+    'previous_application',
+    p.sk_id_curr
 from {{ ref('stg_previous_application') }} as p
 left join known_clients as k on p.sk_id_curr = k.sk_id_curr
 where k.sk_id_curr is null

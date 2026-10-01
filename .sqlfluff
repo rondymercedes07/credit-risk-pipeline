@@ -1,0 +1,22 @@
+[sqlfluff]
+templater = dbt
+dialect = duckdb
+max_line_length = 120
+runaway_limit = 20
+# Excluded on purpose:
+#   ST06 (select wildcards/simple columns before calculations): the column order of the marts is a
+#        deliberate, documented grouping (keys, attributes, measures); reordering would change the
+#        published contract for no benefit.
+#   RF04 (keywords as identifiers): `target` and similar names come from the source dataset and are
+#        part of the column contract; renaming them is a modeling decision, not a lint fix.
+exclude_rules = ST06, RF04
+
+[sqlfluff:templater:dbt]
+project_dir = dbt
+profiles_dir = dbt
+profile = credit_risk
+target = ci
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indent_unit = space

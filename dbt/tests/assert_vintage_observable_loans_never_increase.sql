@@ -13,7 +13,11 @@ with curve as (
 
 )
 
-select cohort, months_on_book, n_loans_observable, previous_observable
+select
+    cohort,
+    months_on_book,
+    n_loans_observable,
+    previous_observable
 from curve
 where
     (previous_observable is not null and n_loans_observable > previous_observable)

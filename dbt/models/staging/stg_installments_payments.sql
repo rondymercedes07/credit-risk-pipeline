@@ -15,7 +15,11 @@ with source as (
 typed as (
 
     select
-        {{ dbt_utils.generate_surrogate_key(['sk_id_prev', 'sk_id_curr', 'num_instalment_version', 'num_instalment_number', 'days_instalment', 'days_entry_payment', 'amt_instalment', 'amt_payment']) }} as installment_payment_id,
+        {{ dbt_utils.generate_surrogate_key([
+            'sk_id_prev', 'sk_id_curr', 'num_instalment_version', 'num_instalment_number',
+            'days_instalment', 'days_entry_payment', 'amt_instalment', 'amt_payment'
+        ]) }}
+            as installment_payment_id,
         {{ to_bigint('sk_id_prev') }} as sk_id_prev,
         {{ to_bigint('sk_id_curr') }} as sk_id_curr,
         {{ to_bigint('num_instalment_version') }} as num_instalment_version,

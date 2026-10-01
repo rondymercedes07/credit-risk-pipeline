@@ -1,4 +1,7 @@
-{#- Materialized as a table on purpose. It joins five aggregates and is read by the risk mart and ~6 tests: a view recomputed everything on every reference. -#}
+{#-
+    Materialized as a table on purpose. It joins five aggregates and is read by the risk mart and
+    ~6 tests: a view recomputed everything on every reference.
+-#}
 
 {{ config(materialized='table') }}
 
