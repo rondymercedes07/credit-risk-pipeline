@@ -24,6 +24,7 @@ dbt = [
 dev = [
     "ruff>=0.6",
     "sqlfluff>=3.2",
+    "sqlfluff-templater-dbt>=3.2",
     "pytest>=8",
     "pre-commit>=3.8",
 ]
