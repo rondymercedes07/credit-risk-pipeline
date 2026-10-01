@@ -93,6 +93,9 @@ jobs:
       # Cosmos renders the graph with `dbt ls`, which needs the dbt packages and a DuckDB path.
       - name: DagBag, dependency, retry and secret-scan tests
         run: |
+          # The image runs as uid 50000 and the runner owns the checkout as another uid:
+          # make it writable so dbt can create dbt_packages/ and logs/.
+          chmod -R a+rwX .
           docker run --rm -e DUCKDB_PATH=/tmp/ci.duckdb -v "$PWD:/opt/project" \
             --entrypoint bash credit-risk-airflow:ci -c \
             "cd /opt/project/dbt && dbt deps && cd .. && pytest tests/test_dags.py -q -p no:cacheprovider"
